@@ -17,9 +17,9 @@ The teacher (the slow, accurate method the network learns to copy) is **fracture
 
 - Repository: https://github.com/sgsellan/fracture-modes
 - Location: `third_party/fracture-modes` (not committed; cloned with `--recursive`)
-- Pinned commit: _to be filled in on Day 1_
+- Pinned commit: [`bdf5051`](https://github.com/sgsellan/fracture-modes/commit/bdf5051fb0d78d787f49fabbf75b54bbc6698b17) (20 Dec 2022, latest on their `main`)
 
-Environment: `rift-teacher` (conda, Python 3.9, native Windows). Full install steps will be added once the install is confirmed on both laptops.
+Environment: `rift-teacher` (conda, Python 3.9, native Windows). Install steps and the reasons behind each pinned version: [`docs/setup-windows.md`](docs/setup-windows.md). Check an install with `python scripts/check_env.py`.
 
 ## Licence and credits
 
