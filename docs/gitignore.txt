@@ -1,0 +1,41 @@
+# --- Data and outputs: never in Git (share via Google Drive or an external drive)
+data/
+outputs/
+runs/
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# --- Third-party code: cloned separately, pinned in README.md
+third_party/
+
+# --- Licences and secrets
+*.lic
+.env
+
+# --- Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# --- Unity (for later)
+unity/**/[Ll]ibrary/
+unity/**/[Tt]emp/
+unity/**/[Oo]bj/
+unity/**/[Bb]uild/
+unity/**/[Bb]uilds/
+unity/**/[Ll]ogs/
+unity/**/[Uu]ser[Ss]ettings/
+
+# --- OS and editors
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
