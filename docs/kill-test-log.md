@@ -6,7 +6,7 @@
 
 If fracture-modes still does not install natively on Windows by the end of Day 3, we will:
 
-- [ ] Use WSL for the teacher environment only
+- [x] Use WSL for the teacher environment only
 - [ ] Switch to the backup FYP (MalwareLens 2.0)
 - [ ] Other: ______
 
@@ -36,10 +36,18 @@ Decided on: Use WSL
 
 ## Environment record (Day 1–2)
 
-- fracture-modes pinned commit:
-- Python version:
-- Package versions that worked (igl, scikit-sparse, tetgen, mosek, gpytoolbox):
-- Problems hit and how they were fixed:
+- fracture-modes pinned commit: `bdf5051` (20 Dec 2022, latest on their `main`)
+- Python version: 3.9
+- Package versions that worked:
+  - Linux dry run (26 Oct): numpy 1.26.4, scipy 1.13.1, scikit-sparse 0.4.16, mosek 11.2.7, libigl 2.4.1, gpytoolbox 0.0.1, tetgen 0.6.4, polyscope 2.5.0, scikit-image 0.24.0. `check_env.py`: 18/20 passed; the 2 failures are the MOSEK checks (no licence on that machine).
+  - Windows, TKR's laptop:
+  - Windows, Waleed's laptop:
+- Problems hit and how they were fixed (found in the Linux dry run, before Day 1):
+  - `pip install scikit-sparse` fails: it needs `cholmod.h` and a C compiler. Fix: install it from conda-forge.
+  - polyscope 2.6.1 crashes on import under Python 3.9 (uses 3.10+ syntax). fracture-modes imports it at load time. Fix: pin 2.5.0.
+  - libigl 2.6.3: `boundary_facets` returns a tuple, which crashes fracture-modes. libigl 2.5.1: `random_points_on_mesh` returns 3 values, which breaks their dataset generator. Fix: pin 2.4.1.
+  - Their `requirements.txt` omits `tqdm`, which their dataset generator imports. Fix: install it explicitly.
+  - MOSEK 11 still has the old `appendcone` API their solver uses (deprecated, not removed). Still to confirm with a licence on Windows.
 
 ## Day 3 timing — the core number
 
