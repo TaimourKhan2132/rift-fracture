@@ -16,17 +16,39 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 Do NOT yet build: the full package layout, training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
+Plan B (decided): if fracture-modes does not run natively on Windows by the end of Day 3, use WSL for the teacher environment only.
+
 ## Environment
 
-- Native Windows. **No WSL.** Use Windows paths. Shells: PowerShell or Miniforge Prompt.
-- Repo lives at `C:\dev\rift-fracture`.
+- Native Windows. No WSL unless Plan B is triggered.
+- Repo on TKR's laptop: `C:\Users\taimo\Documents\work\RIFT\rift-fracture` (not synced by OneDrive).
+- Shells:
+  - VS Code terminal is **cmd**.
+  - Conda is not on PATH. Conda commands work in **Miniforge Prompt** only.
+  - Claude Code's shell (Git Bash) runs env commands without activating:
+    `~/miniforge3/Scripts/conda.exe run -n rift-teacher --no-capture-output python <script>`
 - Two environments, never mixed:
   - `rift-teacher`: conda, Python 3.9, fracture-modes and its dependencies. Data generation only.
   - `rift-train` (later): PyTorch + PyTorch Geometric. Training only.
   - The two stages communicate only through files on disk.
-- In `rift-teacher`, install conda packages first and pip packages last.
-- fracture-modes lives in `third_party/fracture-modes` (gitignored), cloned with `--recursive` and pinned to the commit recorded in `README.md`. Import it by adding that folder to the Python path. **Never copy its code into this repo** (academic, non-commercial licence).
-- The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo.
+
+### rift-teacher install
+
+- Follow `docs/setup-windows.md` exactly. Do NOT use fracture-modes' own `requirements.txt` (unpinned, and missing `tqdm`).
+- Conda owns: python, numpy, scipy, scikit-sparse, mosek. Pip installs the rest and must never upgrade numpy or scipy.
+- Pinned versions. Do not change any of these without re-running `scripts/check_env.py`:
+  - python 3.9, numpy <2, scikit-sparse 0.4.16 (conda-forge), mosek 11.2 (mosek channel)
+  - libigl 2.4.1, gpytoolbox 0.0.1, polyscope 2.5.0, tetgen 0.6.4, scikit-image 0.24.0 (pip)
+  - Reasons are in `docs/setup-windows.md`. Newer libigl and polyscope break fracture-modes.
+- `python scripts/check_env.py` must report all checks passed before any data generation.
+
+### fracture-modes
+
+- Lives in `third_party/fracture-modes` (gitignored). Pinned commit: `bdf5051` (recorded in `README.md` and `scripts/check_env.py`).
+- Run their scripts from inside `third_party/fracture-modes`: they load data by relative path, and their `scripts/context.py` sets the import path.
+- Our own code imports it by adding `third_party/fracture-modes` to `sys.path`.
+- **Never copy its code into this repo** (academic, non-commercial licence).
+- The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo. It expires after 365 days.
 
 ## Rules
 
@@ -36,6 +58,14 @@ Do NOT yet build: the full package layout, training code, the Unity integration,
 - Scripts that run work in parallel must use the `if __name__ == "__main__":` guard (Windows starts new processes from scratch).
 - Record every timing and measurement in `docs/kill-test-log.md`.
 - Ask before installing new packages or changing an environment file. Pin versions once something works.
-- One branch per task, merged through a pull request. Never push to `main` directly.
 - Keep changes small and comment anything non-obvious. The team must be able to explain every line in the viva.
 - In writing, say "matches a physics-based reference", never "real fracture".
+
+## Git and commits
+
+- One branch per task, merged through a pull request. Never push to `main` directly.
+- Merge pull requests with **Rebase and merge**, never Squash and merge (squashing collapses the commit history).
+- Commit after each logical step: one change you can describe in one line. Never batch a whole session into one commit.
+- Commit messages: verb + what changed, e.g. `Add cage-size timing script`.
+- Push at the end of every session.
+- Line endings are LF everywhere (enforced by `.gitattributes`).
