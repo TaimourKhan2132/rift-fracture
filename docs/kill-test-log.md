@@ -21,8 +21,8 @@ Decided on: Use WSL
 | 1 | Tue 27 Oct | Install fracture-modes in `rift-teacher` | `scripts/example.py` finishes in ~15 s and prints its success message | [x] | Passed 27 Oct on TKR's laptop. See "Day 1 results". |
 | 2 | Wed 28 Oct | Buffer. Export the working environment to a file; rebuild it on the second laptop | Second laptop runs the example too | [ ] | |
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
-| 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [ ] | Changed after Day 3's red flag. |
-| 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [ ] | |
+| 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
+| 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
 | 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
@@ -100,17 +100,77 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 
 **Projected generation time:** ~30 s per shape (2,000 faces, d=3), so 300 shapes take about 2.5 CPU-hours on one laptop, or about 1 hour with 3–4 running in parallel (untested). Extra impacts on a shape cost ~11 ms each.
 
+- **Correction (Day 4):** most of the 5–37 ms per impact is a visualisation-only linear solve inside `impact_projection`. The break decision itself takes 0.2–0.4 ms (Day 4). Once a shape is prepared, fracture-modes is fast per impact.
+
+## Day 4 results: break threshold (TKR's laptop, 29 Oct)
+
+**Setup:**
+- Shape: the Day 3 wall.
+- Hits: 100 random points on the whole surface, each aimed straight into it.
+- Thresholds: about 40 per setting, spread over the range where anything changes.
+- Teacher settings: the dataset generator's (cage grid 256, tetgen minratio 1.5).
+- Script: `scripts/sweep_threshold.py`. Pictures and raw numbers: `outputs/day4/` (not in Git).
+- Locality: distance from the hit to the broken-off parts, divided by the shape's average distance from the hit. Lower = breaks closer to the hit.
+
+| Setting | Max pieces | Per shape (s) | Best threshold | Different outcomes (of 100 hits) | Partial | Intact | Shatter | Locality | At 0.02: outcomes / shatter | Decision / full call (ms) | Mismatches |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| cage2000_m10_d3 | 5 | 36 | 25.9 | 18 | 96% | 0% | 4% | 0.37 | 1 / 100% | 0.33 / 12.4 | 0 |
+| cage2000_m20_d3 | 17 | 41 | 40.8 | 63 | 100% | 0% | 0% | 0.26 | 4 / 97% | 0.22 / 10.8 | 0 |
+| cage5000_m10_d3 | 5 | 44 | 223 | 21 | 97% | 3% | 0% | 0.34 | 1 / 100% | 0.40 / 36.0 | 0 |
+| cage5000_m20_d3 | 30 | 83 | 157 | 81 | 100% | 0% | 0% | 0.25 | 4 / 97% | 0.40 / 35.9 | 0 |
+| cage2000_m10_d1 | 58 | 26 | 6.11 | 98 | 100% | 0% | 0% | 0.37 | 37 / 52% | 0.21 / 4.5 | 0 |
+| cage2000_m20_d1 | 317 | 40 | 35.8 | 100 | 100% | 0% | 0% | 0.12 | 98 / 1% | 0.25 / 4.7 | 0 |
+| cage5000_m10_d1 | 64 | 42 | 21.2 | 96 | 100% | 0% | 0% | 0.35 | 10 / 90% | 0.30 / 13.1 | 0 |
+| cage5000_m20_d1 | 416 | 87 | 120 | 100 | 100% | 0% | 0% | 0.12 | 83 / 17% | 0.39 / 16.1 | 0 |
+
+**What this means:**
+
+- **The Day 3 red flag is fixed.** At the default threshold (0.02), the d=3 settings give 1–4 different outcomes from 100 hits. With a tuned threshold they give 18–81, and nearly every hit is a partial break.
+- **Our threshold shortcut is exact:** it matched fracture-modes' own result on all 800 checks (0 mismatches).
+- **Per impact, fracture-modes is fast:** the break decision takes 0.2–0.4 ms. RIFT cannot beat it per impact. Its case rests only on the per-shape preparation: 26–87 s here.
+- **Chosen for Day 5:** cage 5,000, 20 modes, d=3, threshold 157. That gives up to 30 pieces, 81 different outcomes, 5.7 fragments per hit on average, and locality 0.25. It takes 83 s per shape and 0.75 GB peak.
+- **Modes matter more than cage size.** With 10 modes, d=3 allows only 5 pieces; 20 modes allow 17–30.
+- **The threshold is not a constant.** The same wall needs about 41 at 2,000 faces but about 157 at 5,000. Thresholds must be calibrated per shape, which is cheap once the shape is prepared.
+- **Use a band of thresholds, not one value.** The chosen 157 sits near the edge where breaks stop. A per-shape band could also become a "toughness" input to the network.
+- **Open decision: d=3 and d=1 break differently.** d=3 splits the wall into 4–7 large slabs. d=1 punches a local crater of 6–20 small chunks (locality 0.12), which looks closer to game impact damage but ignores impact direction. Decide before data generation.
+
+## Day 5 results: cells and link labels (TKR's laptop, 29 Oct)
+
+**Setup:**
+- Teacher: the Day 4 choice (cage 5,000, 20 modes, d=3, threshold 157).
+- Voxels: 138,240 small cubes (0.00625 units, 8 across the wall's thickness).
+- Cells: 128 Voronoi cells, spread evenly by 5 rounds of Lloyd relaxation.
+- Hits: 50.
+- Script: `scripts/cell_graph.py`. Outputs: `outputs/day5/` (not in Git).
+
+| Setting | Cells | Links (per cell) | Teacher tets per cell | Hits with a break | Purity (all / breaking hits / worst) | Rebuilt | Lost volume | Fragments: teacher / cells | Links broken |
+|---|---|---|---|---|---|---|---|---|---|
+| cage5000_m20_d3, threshold 157 | 128 | 326 (5.1) | 100 | 50 of 50 | 96.2% / 96.2% / 94.7% | 94% | 0.14% | 5.3 / 4.8 | 11.2% |
+
+**What this means:**
+
+- **128 cells capture the teacher's breaks well.** 96.2% of the volume carries the right fragment label (worst hit 94.7%). In the pictures, the broken links follow the teacher's cracks.
+- **Lost fragments are slivers.** 17 of 50 hits lose a fragment smaller than one cell, costing 0.14% of the volume on average and 1.4% at worst.
+- **3 of 50 hits produce one extra island** of cells (rebuilt 94%).
+- **The teacher is not the bottleneck:** there are about 100 teacher tets per cell, so labels are limited by cell size, not by the teacher's resolution.
+- **About 11% of links break per hit.** The classes are unbalanced roughly 1 to 8, which the plan's weighted loss expects.
+- **In each hit, the worst cell is split about half and half** between two fragments: a cell straddling a crack. Finer cells near cracks would help if needed.
+- **Not yet tested:** the same check with d=1 craters, whose chunks may be smaller than a cell.
+
 ## Threats found (Day 6)
 
 - (Found Day 1) After per-shape precomputation, fracture-modes handles each impact in ~1 ms. RIFT must justify itself on the precomputation cost (unseen, procedural and already-broken shapes), not on per-impact speed. Day 3 measures how that cost grows; Day 6 checks whether broken pieces can break again without recomputing their modes.
   - Update (Day 3): per-shape cost is 22–45 s; per-impact cost timed in full is 5–37 ms (d=3). The per-shape cost stays RIFT's main case.
+  - Update (Day 4): the per-impact break decision itself is 0.2–0.4 ms, so this threat stands in full. RIFT's network will probably be slower per impact than fracture-modes. RIFT's only case is skipping the 26–87 s per-shape preparation.
+- (Found Day 4) The right threshold depends on the shape's mesh (about 41 at 2,000 cage faces vs 157 at 5,000 for the same wall). Data generation must calibrate a threshold band per shape, or labels will be inconsistent across shapes.
+- (Found Day 4) d=3 and d=1 give visibly different breaks: large slabs vs a local crater. This choice shapes the whole dataset and is not settled yet.
 - (Found Day 3) With the default break threshold, every impact shatters the wall into the maximum number of pieces, so the labels don't depend on where you hit. Unless Day 4 finds thresholds that give varied outcomes, there is nothing for the network to learn.
 
 ## Go / no-go (Day 7)
 
 - Install works on both laptops from the environment file: yes / no
-- Solve time per shape at usable quality: ______
-- If the solve is around a second, the argument shifts to damaged and procedural shapes: yes / no
+- Solve time per shape at usable quality: 41–83 s (cage 2,000–5,000, 20 modes, d=3; Day 4)
+- If the solve is around a second, the argument shifts to damaged and procedural shapes: no, the solve is 26–87 s. But the per-impact decision is 0.2–0.4 ms, so RIFT's argument is the per-shape cost only
 - Sentis model A loads: yes / no. Model B loads: yes / no
 - Does fracture-modes already handle damaged shapes or repeated impacts?
 
