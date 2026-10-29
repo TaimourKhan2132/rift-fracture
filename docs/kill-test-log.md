@@ -157,6 +157,25 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - **In each hit, the worst cell is split about half and half** between two fragments: a cell straddling a crack. Finer cells near cracks would help if needed.
 - **Not yet tested:** the same check with d=1 craters, whose chunks may be smaller than a cell.
 
+## Day 4b and 5b: slabs or craters (TKR's laptop, 29–30 Oct)
+
+**Question:** which teacher setting makes the dataset? The settings break the same wall in visibly different ways. Same scripts and wall as Days 4 and 5; outputs in `outputs/day4b/`, `outputs/day5_d1/` and `outputs/day5_d1_256/`.
+
+| Option | Setting | Looks like | Fragments per hit | Locality | Per shape (s) | Peak RAM (GB) | Cells: purity / lost volume / fragments teacher → cells |
+|---|---|---|---|---|---|---|---|
+| A: slabs | cage5000_m20_d3, threshold 157 | 4–7 large slabs | 5.7 | 0.25 | 83 | 0.75 | 128 cells: 96.2% / 0.14% / 5.3 → 4.8 |
+| B: crater, direction ignored | cage5000_m20_d1, threshold 120 | Tight crater of small chunks | 15.3 | 0.12 | 87 | 0.55 | 128 cells: 96.2% / 1.57% / 14.1 → 6.0; 256 cells: 97.1% / 0.47% / 14.1 → 8.3 |
+| C: crater with direction | cage5000_m40_d3, threshold 71.3 | Local crater of 11–32 chunks | 27.3 | 0.19 | 470 | 1.04 | Not yet tested |
+
+**What this means:**
+
+- **More modes give the teacher more ways to break.** For d=3, maximum pieces rise from 30 (20 modes) to 291 (40 modes), and the cost per shape rises from 83 s to 470 s.
+- **Option C strengthens RIFT's case:** about 8 minutes per shape, which no game can spend while running.
+- **In crater-style breaks, most chunks are smaller than a cell.** Cells keep the volume right (purity 96–97%, lost volume 0.5–1.6%) but merge chunks: 14 teacher fragments become 6–8 cell fragments. In the game, debris can't be smaller than one cell.
+- **So labels and scores must work at cell resolution.** Train on cell-level labels and judge with volume-based metrics (purity, detached-volume IoU, volume-weighted ARI). Measure fragment-count error against the cell-level labels, not the teacher's chunk count.
+- **"Rebuilt" falls to 72–84% with craters:** majority labels split some fragments into separate islands of cells. In the game these become separate pieces of debris either way.
+- **Decision pending:** compare the three break pictures as a team, and run option C at 256 cells before choosing.
+
 ## Threats found (Day 6)
 
 - (Found Day 1) After per-shape precomputation, fracture-modes handles each impact in ~1 ms. RIFT must justify itself on the precomputation cost (unseen, procedural and already-broken shapes), not on per-impact speed. Day 3 measures how that cost grows; Day 6 checks whether broken pieces can break again without recomputing their modes.
@@ -164,6 +183,7 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
   - Update (Day 4): the per-impact break decision itself is 0.2–0.4 ms, so this threat stands in full. RIFT's network will probably be slower per impact than fracture-modes. RIFT's only case is skipping the 26–87 s per-shape preparation.
 - (Found Day 4) The right threshold depends on the shape's mesh (about 41 at 2,000 cage faces vs 157 at 5,000 for the same wall). Data generation must calibrate a threshold band per shape, or labels will be inconsistent across shapes.
 - (Found Day 4) d=3 and d=1 give visibly different breaks: large slabs vs a local crater. This choice shapes the whole dataset and is not settled yet.
+- (Found Day 4b) Debris size is capped by cell size: crater chunks smaller than a cell merge into cell-sized debris. Ground truth and fragment metrics must be defined at cell resolution, and the proposal must say so.
 - (Found Day 3) With the default break threshold, every impact shatters the wall into the maximum number of pieces, so the labels don't depend on where you hit. Unless Day 4 finds thresholds that give varied outcomes, there is nothing for the network to learn.
 
 ## Go / no-go (Day 7)
