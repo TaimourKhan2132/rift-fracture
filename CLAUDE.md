@@ -29,7 +29,7 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
     `~/miniforge3/Scripts/conda.exe run -n rift-teacher --no-capture-output python <script>`
 - Two environments, never mixed:
   - `rift-teacher`: conda, Python 3.9, fracture-modes and its dependencies. Data generation only.
-  - `rift-train` (later): PyTorch + PyTorch Geometric. Training only.
+  - `rift-train`: conda, Python 3.11. Today: torch 2.15.0 (CPU build), onnx 1.23.2, onnxscript 0.7.2, for the Sentis export test. Later: the CUDA build of torch plus PyTorch Geometric, for training.
   - The two stages communicate only through files on disk.
 
 ### rift-teacher install
@@ -60,6 +60,21 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - Ask before installing new packages or changing an environment file. Pin versions once something works.
 - Keep changes small and comment anything non-obvious. The team must be able to explain every line in the viva.
 - In writing, say "matches a physics-based reference", never "real fracture".
+- **Dataset quality beats generation speed.** Never lower teacher settings (cage grid size, cage faces, number of modes) or skip quality checks to save time, unless the Day 4/5 checks show quality holds.
+- Every label setting must be checked for variety: if every hit gives the same outcome, the labels are useless (Day 3 red flag).
+
+## Scripts
+
+Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignored).
+
+- `scripts/check_env.py`: checks the environment can run fracture-modes (must pass 20/20).
+- `scripts/make_wall.py`: the Day 3 test shape (wall with a window).
+- `scripts/time_fracture.py`: Day 3 timing across cage sizes and mode dimensions.
+- `scripts/sweep_threshold.py`: Day 4 break-threshold sweep; writes `outputs/day4/chosen.json`.
+- `scripts/cell_graph.py`: Day 5 Voronoi cells, links and break labels from teacher results.
+- `scripts/teacher.py`: shared helpers for the two above (not run directly).
+- `scripts/export_sentis_test.py` (**rift-train**): exports the two Sentis test models (dense vs scatter graph layer) to `outputs/sentis_test/`.
+- `unity/SentisTest/SentisSmokeTest.cs`: Unity script that runs those models on every Sentis backend. Copy it into a separate Unity test project; the real Unity project is not in the repo yet.
 
 ## Git and commits
 
