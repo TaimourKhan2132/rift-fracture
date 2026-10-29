@@ -1,7 +1,7 @@
 # RIFT: Real-Time Inference of Fracture Topology
 
 Final Year Project, BS Data Science, University of Management and Technology (UMT), Lahore.
-Supervisor: Prof. Daniyal Adeeb.
+Supervisor: Daniyal Adeeb.
 
 RIFT decides, at the moment of impact, how a game object breaks. A graph neural network reads a pre-cut object (Voronoi cells) plus the hit point and direction, then predicts for each link between neighbouring cells whether it holds or breaks. Cells still linked form one fragment.
 
