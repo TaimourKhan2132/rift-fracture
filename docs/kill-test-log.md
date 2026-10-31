@@ -23,7 +23,7 @@ Decided on: Use WSL
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
-| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher depends on the triangle layout. Label-only check (6e) done: labels do not need the display mesh (homework 278 → 111 s); found and fixed a repeatability bug in the mode solve. |
+| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher depends on the triangle layout. Label-only check (6e) done: labels do not need the display mesh (homework 278 → 111 s); found and fixed a repeatability bug in the mode solve (fix verified). 6c re-run with matched strength: no clean evidence for RQ3. |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
 ### Demo path (Days 1–5, in parallel)
@@ -227,6 +227,20 @@ Per crater (ARI near / far): crater 0 (threshold 64) 0.25 / 0.27, and redo break
 - **Realistic meshes cost more:** homework on the 16,000-triangle walls took 219–307 s against 96 s for the 56-triangle original. Game meshes have thousands of triangles, so option B may cost about 3 times the 87 s budgeted.
 - **Option C run postponed:** it would repeat the same two problems. Next, Day 6d separates the causes of the mesh sensitivity and tests a strength rule that holds across shapes.
 
+**Re-run with matched strength (1 Nov,** `outputs/day6c_B_target/`**):** every wall's threshold set by the target-damage rule (median hit breaks off 5%; Day 6d), teacher built without the display mesh and with the mode-solver fix (Day 6e). Thresholds: intact 162, rebuilt control 174, damaged 235–251. Homework on each rebuilt wall 107–110 s.
+
+| Second hits on | Hits | ARI reuse vs redo (95% CI) | Detached IoU | Broken-off volume: reuse / redo | Fragments reuse / redo |
+|---|---|---|---|---|---|
+| Control: intact wall, rebuilt | 40 | 0.55 (0.47–0.61) | 0.44 | 4.8% / 5.4% | 7.0 / 8.6 |
+| Damaged wall, near crater (< 0.15) | 60 | 0.52 (0.45–0.59) | 0.42 | 3.8% / 6.6% | 6.0 / 5.9 |
+| Damaged wall, far from crater | 60 | 0.56 (0.50–0.62) | 0.45 | 5.3% / 4.7% | 8.0 / 5.2 |
+
+- **Where things break: no damage effect beyond the teacher's own mesh noise.** Near minus control: −0.03 ARI (95% CI −0.12 to +0.07). Far minus control: +0.01.
+- **How much breaks: redo breaks more near the crater.** Redo minus reuse: +2.8 points of volume near the crater (95% CI +1.6 to +4.1), but +0.6 in the control and −0.6 far away (both include zero). On the rim (< 0.03, 11 hits): reuse 2.6% vs redo 7.2%.
+- **That extra breaking is at least partly an artifact.** fracture-modes pushes every tet corner within 0.05 of the hit by the same amount, so a denser tet mesh means a stronger hit. Rebuilding the cages and tets of these walls (cloud check, same libraries) shows 1.3–1.9 times more corners within 0.05 around the crater rim than the intact wall has at the same places, against 1.06–1.11 times elsewhere. The rebuilt mesh is finer around the crater, so its rim hits are stronger. This cannot be separated from real weakening with this data.
+- **Verdict on RQ3 (damaged shapes):** no clean evidence yet. For small craters (4–6%), reusing the intact wall's homework is as close to redoing it as the teacher is to itself. The one difference found (more breaking near the crater) is confounded by the teacher's impact definition.
+
+
 ## Day 6d: how much does the teacher depend on the mesh? (31 Oct)
 
 **Question:** Day 6c's control showed that rebuilding the wall changes the break. Is that randomness, the triangle layout, or the rounded edges? And can one threshold rule mean the same strength on every mesh?
@@ -266,7 +280,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 
 - **Labels do not need the display mesh.** Every tet matched in all 40 hits, and homework drops from 278 s to 111 s on a realistic mesh. Data generation will use `build_teacher(..., display_mesh=False)`.
 - **Found a repeatability bug in the teacher.** The cage and tets of the two builds were bit-for-bit identical, but the modes were not (largest difference 45; 476 vs 475 pieces). Cause: fracture-modes starts its mode solve with scipy's `eigsh` without a starting vector, so it draws a random one, and that random state carries over between calls in the same Python process. When two eigenvalues are nearly equal, as on a symmetric wall, the answer then depends on how many shapes were built before. Day 6d's "original again" happened to match; this mesh did not.
-- **Fix:** `teacher.fix_mode_solver_start()` gives the solver a fixed starting vector, applied inside `build_teacher` without editing fracture-modes' code. Every result before this fix (Days 3–6d) used the solver's first random start in each process; to be confirmed by re-running this check, which should now report identical builds.
+- **Fix:** `teacher.fix_mode_solver_start()` gives the solver a fixed starting vector, applied inside `build_teacher` without editing fracture-modes' code. Every result before this fix (Days 3–6d) used whatever random start each build got. **Verified 1 Nov:** re-running this check gave bit-for-bit identical builds (modes difference 0.0, 476 and 476 pieces) and identical labels on all 40 hits.
 - **The mesh dependence of Day 6d is not this bug:** two builds with different random starts still gave identical labels on all 40 hits, so the 0.56–0.64 agreement between triangulations comes from the triangles.
 
 ## Threats found (Day 6)
@@ -282,6 +296,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - (Found Day 6c, confirmed Day 6d) Teacher labels depend on the triangle layout, not only the shape: the same wall cut into different triangles agrees at ARI 0.56–0.64. It is not randomness (Day 6e). This is label noise. It caps how closely any student can match the teacher, so the evaluation must report teacher-vs-teacher agreement as the ceiling.
 - (Found Day 6c) The Day 4 threshold rule (most different outcomes) gives different strength on near-identical shapes (thresholds 64–210). Strength must mean the same thing on every shape before bulk generation.
 - (Found Day 6c) Homework on a 16,000-triangle wall takes 219–321 s for option B, about 3 times the 56-triangle wall. Day 6d: 166–210 s of that is the display-mesh step, which labels do not need. Dataset time estimates must use realistic meshes and the label-only setting.
+- (Found Day 6c re-run) fracture-modes' hit pushes every tet corner within 0.05 of the contact point equally, so hit strength depends on local tet density (1.3–1.9 times more corners around a rebuilt crater rim). This is one cause of the mesh dependence and confounds any damaged-shape comparison. A mesh-independent hit (push weighted by volume, same total) is the candidate fix.
 - (Found Day 6e, fixed) fracture-modes' mode solve used a random starting vector carried over between shapes in one process, so a shape's teacher could depend on which shapes were built before it (476 vs 475 pieces for identical tets). Fixed with a fixed starting vector in `build_teacher`; generated data must record that it used this fix.
 - (Found Day 6, in RIFT's favour) The paper's authors did not simulate secondary fractures and say per-piece modes would exceed realtime constraints. RQ3 (damaged shapes) is supported by the method's own limitations.
 
