@@ -23,7 +23,7 @@ Decided on: Use WSL
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
-| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher is repeatable but depends on the triangle layout. |
+| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher depends on the triangle layout. Label-only check (6e) done: labels do not need the display mesh (homework 278 → 111 s); found and fixed a repeatability bug in the mode solve. |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
 ### Demo path (Days 1–5, in parallel)
@@ -244,12 +244,30 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 
 **What this means:**
 
-- **The teacher is repeatable.** The same file gives identical breaks. There is no randomness to control.
+- **The teacher looked repeatable here:** the same file gave identical breaks. Day 6e then found hidden randomness in the mode solve on a larger mesh, now fixed.
 - **The triangle layout alone changes the break.** The exact same shape, cut into smaller triangles, agrees with the original only at ARI 0.56–0.64 (detached IoU 0.46). The rounded rebuild scores the same, so the rounding adds nothing. Day 6c's control was measuring this.
 - **Why (from reading fracture-modes' code, `fracture_modes.py`):** the input triangles shape the cage, and the cage shapes the tets (10,261 vs 10,742) and the breakable pieces (416 vs 482). The hit pushes every tet corner within 0.05 of the contact point, so its strength also depends on how many corners sit there. The code itself has a comment about "the effect of mesh dependency", with the fix marked unsupported.
 - **This is label noise with a known size.** A student cannot be expected to agree with one teacher run more than the teacher agrees with itself on a re-triangulated copy (about 0.6 ARI on this wall). The evaluation must report this ceiling.
 - **The precompute step is what gets slow, and our labels do not need it.** On realistic meshes it takes 166–210 s of the 250–320 s. In fracture-modes' code, that time is spent cutting the display mesh into fragments; the break decision is computed before it and never uses the display mesh. Skipping it should bring option B back to about 100 s per shape (to verify).
 - **The target-damage rule gives the same strength on every version** (4.9–5.0% median damage). On these intact versions the Day 4 rule was also close (5.8–6.3%); its problem showed on damaged walls (Day 6c). Re-running Day 6c with the target-damage rule is the fair test of second hits.
+
+## Day 6e: labels without the display mesh, and a repeatability bug (31 Oct)
+
+**Question:** can the teacher skip cutting the display mesh into fragments (the slow step on realistic meshes, Day 6d) without changing any label?
+
+**Method** (`scripts/label_only_check.py`, option B, `outputs/day6e_B/`): build the teacher twice on the Day 3 wall cut into 14,336 triangles, once with the display mesh and once without. Set one threshold (5% median damage) and hit both at the same 40 points. Every tet's label must match.
+
+| Build | Homework (s) | Cage | Tets | Modes | Precompute | Hits with identical labels |
+|---|---|---|---|---|---|---|
+| with display mesh | 278 | 34 | 0.1 | 72 | 171 | reference |
+| labels only | 111 | 35 | 0.1 | 74 | 2 | 40 of 40 |
+
+**What this means:**
+
+- **Labels do not need the display mesh.** Every tet matched in all 40 hits, and homework drops from 278 s to 111 s on a realistic mesh. Data generation will use `build_teacher(..., display_mesh=False)`.
+- **Found a repeatability bug in the teacher.** The cage and tets of the two builds were bit-for-bit identical, but the modes were not (largest difference 45; 476 vs 475 pieces). Cause: fracture-modes starts its mode solve with scipy's `eigsh` without a starting vector, so it draws a random one, and that random state carries over between calls in the same Python process. When two eigenvalues are nearly equal, as on a symmetric wall, the answer then depends on how many shapes were built before. Day 6d's "original again" happened to match; this mesh did not.
+- **Fix:** `teacher.fix_mode_solver_start()` gives the solver a fixed starting vector, applied inside `build_teacher` without editing fracture-modes' code. Every result before this fix (Days 3–6d) used the solver's first random start in each process; to be confirmed by re-running this check, which should now report identical builds.
+- **The mesh dependence of Day 6d is not this bug:** two builds with different random starts still gave identical labels on all 40 hits, so the 0.56–0.64 agreement between triangulations comes from the triangles.
 
 ## Threats found (Day 6)
 
@@ -261,9 +279,10 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - (Found Day 4b) Debris size is capped by cell size: crater chunks smaller than a cell merge into cell-sized debris. Ground truth and fragment metrics must be defined at cell resolution, and the proposal must say so.
 - (Found Day 3) With the default break threshold, every impact shatters the wall into the maximum number of pieces, so the labels don't depend on where you hit. Unless Day 4 finds thresholds that give varied outcomes, there is nothing for the network to learn.
 - (Found Day 6) The teacher's breaks do not depend on impact direction (paper Sec. 6, Fig. 21; Day 6b: 0% of tilted hits changed). The only mode where direction matters shatters the wall far from the hit. RIFT cannot promise direction-dependent fracture; the README and proposal must say "impact location and strength".
-- (Found Day 6c, confirmed Day 6d) Teacher labels depend on the triangle layout, not only the shape: the same wall cut into different triangles agrees at ARI 0.56–0.64. The teacher is repeatable on the same file. This is label noise. It caps how closely any student can match the teacher, so the evaluation must report teacher-vs-teacher agreement as the ceiling.
+- (Found Day 6c, confirmed Day 6d) Teacher labels depend on the triangle layout, not only the shape: the same wall cut into different triangles agrees at ARI 0.56–0.64. It is not randomness (Day 6e). This is label noise. It caps how closely any student can match the teacher, so the evaluation must report teacher-vs-teacher agreement as the ceiling.
 - (Found Day 6c) The Day 4 threshold rule (most different outcomes) gives different strength on near-identical shapes (thresholds 64–210). Strength must mean the same thing on every shape before bulk generation.
 - (Found Day 6c) Homework on a 16,000-triangle wall takes 219–321 s for option B, about 3 times the 56-triangle wall. Day 6d: 166–210 s of that is the display-mesh step, which labels do not need. Dataset time estimates must use realistic meshes and the label-only setting.
+- (Found Day 6e, fixed) fracture-modes' mode solve used a random starting vector carried over between shapes in one process, so a shape's teacher could depend on which shapes were built before it (476 vs 475 pieces for identical tets). Fixed with a fixed starting vector in `build_teacher`; generated data must record that it used this fix.
 - (Found Day 6, in RIFT's favour) The paper's authors did not simulate secondary fractures and say per-piece modes would exceed realtime constraints. RQ3 (damaged shapes) is supported by the method's own limitations.
 
 ## Go / no-go (Day 7)
