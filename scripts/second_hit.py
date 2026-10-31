@@ -14,11 +14,11 @@ repeated hits cheaply and RIFT's case for damaged shapes (RQ3) is weak. If they
 differ, especially near the crater, RIFT has a real job.
 
 Steps:
-  1. build the teacher on the intact wall; calibrate its threshold (Day 4 rule),
+  1. build the teacher on the intact wall and set its threshold (strength rule below),
   2. pick K first hits that each knock out a crater of 2-20% of the wall,
   3. for each: keep the largest remaining fragment, rebuild it as a closed mesh
      (voxels -> smoothed surface -> simplified to about 16,000 triangles),
-     redo the homework on it and calibrate its own threshold,
+     redo the homework on it and set its own threshold by the same rule,
   4. hit the damaged wall at M points (half near the crater, half far) with both
      reuse and redo, and compare the two breaks on the damaged wall's voxels:
        ARI           agreement between the two breaks (1 = identical, 0 = unrelated)
@@ -29,11 +29,21 @@ Steps:
      and redo already disagree here, the disagreement comes from rebuilding the
      shape, not from the damage.
 
-Usage (Miniforge Prompt, rift-teacher active, repo root):
-    python scripts/second_hit.py              (option B: about 12 minutes)
-    python scripts/second_hit.py --preset C   (option C: about 45 minutes)
+Strength rule (--strength):
+  target-damage   default: the threshold at which the median random hit breaks off
+                  5% of the volume (Day 6d), so strength means the same on every wall
+  most-outcomes   the Day 4 rule, used by the first Day 6c run. It gave thresholds
+                  from 64 to 210 on near-identical walls, which spoiled that comparison.
 
-Outputs in outputs/day6c_<preset>/ (gitignored): summary.json, per_hit.csv,
+The teacher is built without the display mesh: labels do not need it, and it is the
+slow step on rebuilt walls (Day 6d; checked by scripts/label_only_check.py).
+
+Usage (Miniforge Prompt, rift-teacher active, repo root):
+    python scripts/second_hit.py              (option B: about 10 minutes)
+    python scripts/second_hit.py --preset C   (option C: about 40 minutes)
+
+Outputs in outputs/day6c_<preset>_target/ (target-damage rule) or
+outputs/day6c_<preset>/ (most-outcomes rule), gitignored: summary.json, per_hit.csv,
 case_<k>.png pictures and case_<k>_wall.obj meshes (k = control, 0, 1, 2).
 """
 
@@ -47,8 +57,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # find teacher.py next to this file
-from teacher import (DEFAULT_FM_DIR, build_teacher, decide, load_shape, piece_distances,
-                     project_impact, sample_impacts, tet_volumes_and_centroids)
+from teacher import (DEFAULT_FM_DIR, build_teacher, decide, hit_distances, load_shape,
+                     piece_distances, piece_volumes, project_impact, sample_impacts,
+                     target_damage_threshold, tet_volumes_and_centroids)
 from sweep_threshold import outcome_stats
 from cell_graph import locate_in_tets, voxelize
 
@@ -81,6 +92,23 @@ def calibrate(T, v, f, n_hits, n_thresholds, seed):
     best = max(rows, key=lambda s: (s["distinct_outcomes"], s["frac_partial"],
                                     -np.nan_to_num(s["locality_ratio"], nan=9.0)))
     return best, points, dirs, dists, piece_vol
+
+
+def set_strength(T, v, f, args, seed):
+    """Threshold for this shape by the chosen rule.
+
+    Returns (threshold, hit points, hit directions, piece distances per hit, piece volumes)
+    for the calibration hits, which are random points on this shape's own surface.
+    """
+    if args.strength == "most-outcomes":
+        best, points, dirs, dists, piece_vol = calibrate(T, v, f, args.calibration_hits,
+                                                         args.thresholds, seed)
+        return float(best["threshold"]), points, dirs, dists, piece_vol
+    points, dirs = sample_impacts(v, f, args.calibration_hits, seed)
+    dists = [hit_distances(T["fm"], p, dvec, T["d"]) for p, dvec in zip(points, dirs)]
+    piece_vol = piece_volumes(T)
+    threshold, _ = target_damage_threshold(T["fm"], dists, piece_vol, args.target_damage)
+    return threshold, points, dirs, dists, piece_vol
 
 
 def voxel_fragments(fm, voxel_tet):
@@ -201,8 +229,12 @@ def main():
     p.add_argument("--mesh", type=Path, default=Path("outputs/day3/wall.obj"))
     p.add_argument("--cases", type=int, default=3, help="how many first hits (craters)")
     p.add_argument("--hits", type=int, default=40, help="second hits per crater")
+    p.add_argument("--strength", choices=["target-damage", "most-outcomes"],
+                   default="target-damage", help="how each wall's threshold is set")
+    p.add_argument("--target-damage", type=float, default=0.05,
+                   help="share of the volume the median hit breaks off (target-damage rule)")
     p.add_argument("--calibration-hits", type=int, default=60)
-    p.add_argument("--thresholds", type=int, default=40)
+    p.add_argument("--thresholds", type=int, default=40, help="grid for the most-outcomes rule")
     p.add_argument("--mesh-faces", type=int, default=16000,
                    help="triangles in each rebuilt wall (fewer rounds its corners)")
     p.add_argument("--grid-size", type=int, default=256)
@@ -212,19 +244,20 @@ def main():
     p.add_argument("--fm-dir", type=Path, default=DEFAULT_FM_DIR)
     args = p.parse_args()
     cfg = PRESETS[args.preset]
-    out = args.out_dir or Path(f"outputs/day6c_{args.preset}")
+    suffix = "_target" if args.strength == "target-damage" else ""
+    out = args.out_dir or Path(f"outputs/day6c_{args.preset}{suffix}")
     out.mkdir(parents=True, exist_ok=True)
     setting = f"option {args.preset}: cage{cfg['cage']}_m{cfg['modes']}_d{cfg['d']}"
-    print(f"Teacher setting: {setting}", flush=True)
+    rule = (f"target damage {args.target_damage:.0%}" if args.strength == "target-damage"
+            else "most outcomes")
+    print(f"Teacher setting: {setting}; strength rule: {rule}", flush=True)
 
     # 1) Intact wall: homework, threshold, voxels.
     v0, f0 = load_shape(args.mesh)
     T1 = build_teacher(v0, f0, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
-                       args.minratio, args.fm_dir)
+                       args.minratio, args.fm_dir, display_mesh=False)
     t_intact = sum(T1["timings"].values())
-    best1, cal_pts, cal_dirs, cal_dists, piece_vol1 = calibrate(
-        T1, v0, f0, args.calibration_hits, args.thresholds, args.seed)
-    thr1 = best1["threshold"]
+    thr1, cal_pts, cal_dirs, cal_dists, piece_vol1 = set_strength(T1, v0, f0, args, args.seed)
     vox, vox_index, spacing = voxelize(v0, f0)
     lo = v0.min(axis=0)
     vt1, missed1 = locate_in_tets(vox, T1["nodes"], T1["elements"])
@@ -272,11 +305,9 @@ def main():
         igl.write_obj(str(out / f"case_{k}_wall.obj"), V2, F2)
         t = time.perf_counter()
         T2 = build_teacher(V2, F2, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
-                           args.minratio, args.fm_dir)
+                           args.minratio, args.fm_dir, display_mesh=False)
         t_redo = time.perf_counter() - t
-        best2, _, _, _, _ = calibrate(T2, V2, F2, args.calibration_hits, args.thresholds,
-                                      args.seed + 1)
-        thr2 = best2["threshold"]
+        thr2 = set_strength(T2, V2, F2, args, args.seed + 1)[0]
         vt2, missed2 = locate_in_tets(vox[keep], T2["nodes"], T2["elements"])
         vt1_keep = vt1[keep]
         index_keep = vox_index[keep]
@@ -320,8 +351,9 @@ def main():
         rows += case_rows
         cases.append({"case": k, "first_hit": None if i1 is None else int(i1),
                       "crater_share": crater_share, "triangles": int(len(F2)),
-                      "redo_homework_s": t_redo, "threshold_intact": thr1,
-                      "threshold_rebuilt": thr2})
+                      "redo_homework_s": t_redo,
+                      "redo_timings_s": {k: float(v) for k, v in T2["timings"].items()},
+                      "threshold_intact": thr1, "threshold_rebuilt": thr2})
 
         # Picture: two second hits (control: two random ones; craters: nearest and farthest).
         if k == "control":
@@ -373,8 +405,9 @@ def main():
     groups = {"control": [r for r in rows if r["case"] == "control"],
               "near": [r for r in rows if r["case"] != "control" and r["near"]],
               "far": [r for r in rows if r["case"] != "control" and not r["near"]]}
-    summary = {"setting": setting, "intact_homework_s": t_intact, "threshold_intact": thr1,
-               "cases": cases}
+    summary = {"setting": setting, "strength_rule": args.strength,
+               "target_damage": args.target_damage, "intact_homework_s": t_intact,
+               "threshold_intact": thr1, "cases": cases}
     for name, subset in groups.items():
         summary[f"{name}_hits"] = len(subset)
         for key in ("ari_reuse_vs_redo", "ari_reuse_vs_redo_same_threshold", "detached_iou",
@@ -388,7 +421,8 @@ def main():
     redo_ctrl = "%.0f" % cases[0]["redo_homework_s"]
     redo_dmg = ", ".join("%.0f" % c["redo_homework_s"] for c in damaged)
     print(f"\nSaved results in {out}\n\nPaste into docs/kill-test-log.md (Day 6c):\n")
-    print(f"Setting: {setting}. Intact-wall homework {t_intact:.0f} s. Craters: {craters}.\n")
+    print(f"Setting: {setting}; strength rule: {rule}. Intact-wall homework {t_intact:.0f} s "
+          f"(no display mesh). Craters: {craters}.\n")
     print("| Second hits on | Hits | Redo homework (s) | ARI reuse vs redo | Same threshold "
           "| Detached IoU | Fragments reuse / redo |")
     print("|---|---|---|---|---|---|---|")
