@@ -83,6 +83,7 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 - `scripts/direction_check.py`: Day 6b check of whether impact direction changes the break, for both fracture-modes projections.
 - `scripts/second_hit.py`: Day 6c test of whether a second hit on a damaged wall can reuse the intact wall's homework or needs it redone (includes a no-crater control).
 - `scripts/repeat_check.py`: Day 6d check of how much the teacher's break depends on the mesh (same file twice, finer triangles, rounded rebuild), and of a target-damage threshold rule.
+- `scripts/label_only_check.py`: Day 6e check that labels are identical when the teacher skips the display-mesh step (`build_teacher(..., display_mesh=False)`), and how much time that saves.
 - `scripts/teacher.py`: shared helpers for the scripts above (not run directly).
 - `scripts/export_sentis_test.py` (**rift-train**): exports the two Sentis test models (dense vs scatter graph layer) to `outputs/sentis_test/`.
 - `unity/SentisTest/SentisSmokeTest.cs`: Unity script that runs those models on every Sentis backend. Copy it into a separate Unity test project; the real Unity project is not in the repo yet.
