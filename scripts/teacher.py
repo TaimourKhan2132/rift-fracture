@@ -1,7 +1,7 @@
 """Shared helpers for running the fracture-modes teacher on one shape.
 
-Used by scripts/sweep_threshold.py (Day 4) and scripts/cell_graph.py (Day 5).
-Not meant to be run on its own.
+Used by the Day 4-6 scripts (sweep_threshold, cell_graph, direction_check,
+second_hit, repeat_check, label_only_check). Not meant to be run on its own.
 
 Words used here:
   fine mesh   the shape as the game would draw it (here: the wall)
@@ -11,6 +11,8 @@ Words used here:
   fragments   what you get after one impact: pieces still stuck together form one fragment
   threshold   break rule: two neighbouring pieces stay joined while the difference in
               how far the impact pushes them is below the threshold
+  target damage  a way to set the threshold so it means the same strength on every
+              shape: the median random hit breaks off a fixed share of the volume (Day 6d)
 """
 
 import sys
@@ -36,10 +38,16 @@ def load_shape(path):
 
 
 def build_teacher(v_fine, f_fine, cage, d, modes, grid_size=256, minratio=1.5,
-                  fm_dir=DEFAULT_FM_DIR):
+                  fm_dir=DEFAULT_FM_DIR, display_mesh=True):
     """Run every once-per-shape step. Returns a dict with the fracture_modes object and timings.
 
     Settings default to fracture-modes' own dataset generator (generate_fractures.py).
+
+    display_mesh=False skips cutting the fine mesh into per-piece meshes. The break
+    decision never uses them (they are only for drawing fragments), and on a mesh
+    with thousands of triangles this step takes most of the time (Day 6d). Labels
+    are unchanged (checked by scripts/label_only_check.py); pictures that colour the
+    fine mesh need display_mesh=True.
     """
     sys.path.insert(0, str(fm_dir))
     import tetgen
@@ -62,7 +70,10 @@ def build_teacher(v_fine, f_fine, cage, d, modes, grid_size=256, minratio=1.5,
     timings["modes_s"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    fm.impact_precomputation(v_fine=v_fine, f_fine=f_fine)
+    if display_mesh:
+        fm.impact_precomputation(v_fine=v_fine, f_fine=f_fine)
+    else:
+        fm.impact_precomputation()
     timings["precompute_s"] = time.perf_counter() - t
 
     return {"fm": fm, "nodes": nodes, "elements": elements, "cage_v": cage_v,
@@ -145,6 +156,52 @@ def decide(fm, distances, threshold):
     n = fm.precomputed_num_pieces
     adj = csr_matrix((np.ones(len(keep)), (keep[:, 0], keep[:, 1])), shape=(n, n))
     return connected_components(adj, directed=False)
+
+
+def hit_distances(fm, point, direction3, d):
+    """Piece-pair distances for one hit (they do not depend on the threshold)."""
+    project_impact(fm, point, direction3, d, 1.0)
+    return piece_distances(fm)
+
+
+def piece_volumes(T):
+    """Volume of each piece (sum of its tets)."""
+    fm = T["fm"]
+    tet_vol, _ = tet_volumes_and_centroids(T["nodes"], T["elements"])
+    tet_piece = np.asarray(fm.piece_to_tet_matrix.argmax(axis=1)).ravel()
+    return np.bincount(tet_piece, weights=tet_vol, minlength=fm.precomputed_num_pieces)
+
+
+def damage_share(fm, distances, piece_vol, threshold):
+    """Share of the volume that breaks off: everything outside the largest fragment."""
+    _, lab = decide(fm, distances, threshold)
+    frag_vol = np.bincount(lab, weights=piece_vol)
+    return 1.0 - frag_vol.max() / piece_vol.sum()
+
+
+def median_damage(fm, distances_list, piece_vol, threshold):
+    return float(np.median([damage_share(fm, dist, piece_vol, threshold)
+                            for dist in distances_list]))
+
+
+def target_damage_threshold(fm, distances_list, piece_vol, target):
+    """Threshold at which the median hit breaks off `target` of the volume (Day 6d).
+
+    A higher threshold keeps more pieces joined, so damage only falls as the threshold
+    rises. Bisection on log(threshold) finds where the median crosses the target.
+    Returns (threshold, median damage at that threshold).
+    """
+    pooled = np.concatenate(distances_list)
+    pooled = pooled[pooled > 0]
+    lo, hi = np.log(pooled.min() * 0.5), np.log(pooled.max() * 2.0)
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        if median_damage(fm, distances_list, piece_vol, np.exp(mid)) > target:
+            lo = mid  # too much damage: raise the threshold
+        else:
+            hi = mid
+    threshold = float(np.exp(hi))
+    return threshold, median_damage(fm, distances_list, piece_vol, threshold)
 
 
 # ---------------------------------------------------------------- pictures
