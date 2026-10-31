@@ -23,7 +23,7 @@ Decided on: Use WSL
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
-| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | |
+| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
 ### Demo path (Days 1–5, in parallel)
@@ -165,7 +165,7 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 |---|---|---|---|---|---|---|---|
 | A: slabs | cage5000_m20_d3, threshold 157 | 4–7 large slabs | 5.7 | 0.25 | 83 | 0.75 | 128 cells: 96.2% / 0.14% / 5.3 → 4.8 |
 | B: crater, direction ignored | cage5000_m20_d1, threshold 120 | Tight crater of small chunks | 15.3 | 0.12 | 87 | 0.55 | 128 cells: 96.2% / 1.57% / 14.1 → 6.0; 256 cells: 97.1% / 0.47% / 14.1 → 8.3 |
-| C: crater with direction | cage5000_m40_d3, threshold 71.3 | Local crater of 11–32 chunks | 27.3 | 0.19 | 470 | 1.04 | Not yet tested |
+| C: crater (direction: see Day 6b) | cage5000_m40_d3, threshold 71.3 | Local crater of 11–32 chunks | 27.3 | 0.19 | 470 | 1.04 | 256 cells: 94.6% / 0.76% / 24.4 → 14.5 (rebuilt 58%, worst purity 90.8%) |
 
 **What this means:**
 
@@ -174,7 +174,29 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - **In crater-style breaks, most chunks are smaller than a cell.** Cells keep the volume right (purity 96–97%, lost volume 0.5–1.6%) but merge chunks: 14 teacher fragments become 6–8 cell fragments. In the game, debris can't be smaller than one cell.
 - **So labels and scores must work at cell resolution.** Train on cell-level labels and judge with volume-based metrics (purity, detached-volume IoU, volume-weighted ARI). Measure fragment-count error against the cell-level labels, not the teacher's chunk count.
 - **"Rebuilt" falls to 72–84% with craters:** majority labels split some fragments into separate islands of cells. In the game these become separate pieces of debris either way.
-- **Decision pending:** compare the three break pictures as a team, and run option C at 256 cells before choosing.
+- **Team chose option C on 31 Oct** (`docs/decisions.md`, D1), partly because it was expected to respond to impact direction. Day 6b tested that.
+
+## Day 6 and 6b: the paper, and impact direction (31 Oct)
+
+**Paper pre-read** (`docs/paper-notes-fracture-modes.md`; pages from the arXiv version, to confirm):
+
+- The authors did not simulate secondary fractures, and say computing new modes for each broken piece "would exceed realtime constraints" (Sec. 6). fracture-modes does not handle repeated impacts or damaged shapes. This is RIFT's opening.
+- Their timings match ours: up to about 2 minutes per shape, and 1–2 ms per impact on their timer.
+- The paper says its fracture modes ignore the direction of the break, and that the fault is the same regardless of impact direction (Sec. 6, Fig. 21).
+
+**Direction check** (`scripts/direction_check.py`): option C, 50 hits, each from straight in, 45 degrees and 80 degrees. Outputs: `outputs/day6b/`.
+
+| Projection | Threshold | Different outcomes (of 50 hits) | Partial | Locality | 45 deg: changed / detached IoU | 80 deg: changed / detached IoU | Mismatches |
+|---|---|---|---|---|---|---|---|
+| default | 84.9 | 50 | 100% | 0.17 | 0% / 1.00 | 0% / 1.00 | 0 |
+| project_on_modes | 75.9 | 50 | 100% | 0.55 | 94% / 0.93 | 92% / 0.95 | 0 |
+
+**What this means:**
+
+- **With the default projection, direction has no effect at all.** No tilted hit changed the break, as the code predicted. Breaks stay local (locality 0.17, about 22 fragments per hit).
+- **`project_on_modes` makes direction matter a little, but breaks the wall far from the hit.** Over 90% of tilted hits change, but 93–95% of the broken-off volume stays the same. In the pictures, one hit shatters most of the wall into 20–49 pieces (locality 0.55). That is not usable as a training target.
+- **So this teacher cannot teach direction-dependent fracture.** RIFT should claim impact location and strength, not direction. Direction can still push the debris in the game's physics.
+- **Option C's remaining advantage over B is the look:** about 22 vs 15 fragments per hit. It costs about 5 times more per shape, and many of its extra chunks are smaller than a cell anyway (24 → 14.5 at 256 cells). Decision D1 is under review (`docs/decisions.md`).
 
 ## Threats found (Day 6)
 
@@ -185,6 +207,8 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - (Found Day 4) d=3 and d=1 give visibly different breaks: large slabs vs a local crater. This choice shapes the whole dataset and is not settled yet.
 - (Found Day 4b) Debris size is capped by cell size: crater chunks smaller than a cell merge into cell-sized debris. Ground truth and fragment metrics must be defined at cell resolution, and the proposal must say so.
 - (Found Day 3) With the default break threshold, every impact shatters the wall into the maximum number of pieces, so the labels don't depend on where you hit. Unless Day 4 finds thresholds that give varied outcomes, there is nothing for the network to learn.
+- (Found Day 6) The teacher's breaks do not depend on impact direction (paper Sec. 6, Fig. 21; Day 6b: 0% of tilted hits changed). The only mode where direction matters shatters the wall far from the hit. RIFT cannot promise direction-dependent fracture; the README and proposal must say "impact location and strength".
+- (Found Day 6, in RIFT's favour) The paper's authors did not simulate secondary fractures and say per-piece modes would exceed realtime constraints. RQ3 (damaged shapes) is supported by the method's own limitations.
 
 ## Go / no-go (Day 7)
 
@@ -192,7 +216,7 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - Solve time per shape at usable quality: 41–83 s (cage 2,000–5,000, 20 modes, d=3; Day 4)
 - If the solve is around a second, the argument shifts to damaged and procedural shapes: no, the solve is 26–87 s. But the per-impact decision is 0.2–0.4 ms, so RIFT's argument is the per-shape cost only
 - Sentis model A loads: yes / no. Model B loads: yes / no
-- Does fracture-modes already handle damaged shapes or repeated impacts?
+- Does fracture-modes already handle damaged shapes or repeated impacts? No. Secondary fractures were not simulated, and per-piece modes "would exceed realtime constraints" (paper Sec. 6; pages to confirm)
 
 **Decision:** GO / NO-GO
 
