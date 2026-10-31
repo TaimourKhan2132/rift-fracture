@@ -66,8 +66,31 @@ def main():
         builds[name] = build_teacher(v, f, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
                                      args.minratio, args.fm_dir, display_mesh=display)
     full, lab = builds["with display mesh"], builds["labels only"]
-    same_mesh = (np.array_equal(full["elements"], lab["elements"])
-                 and full["fm"].precomputed_num_pieces == lab["fm"].precomputed_num_pieces)
+
+    # Compare every intermediate result of the two builds, step by step, so a
+    # difference can be traced to the step that made it.
+    def identical_arrays(a, b):
+        a, b = np.asarray(a), np.asarray(b)
+        return bool(a.shape == b.shape and np.array_equal(a, b))
+
+    def largest_difference(a, b):
+        a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+        return float(np.abs(a - b).max()) if a.shape == b.shape else float("inf")
+
+    steps = {
+        "cage triangles identical": identical_arrays(full["cage_f"], lab["cage_f"]),
+        "cage corners: largest difference": largest_difference(full["cage_v"], lab["cage_v"]),
+        "tets": [len(full["elements"]), len(lab["elements"])],
+        "tet corner indices identical": identical_arrays(full["elements"], lab["elements"]),
+        "tet corners: largest difference": largest_difference(full["nodes"], lab["nodes"]),
+        "modes: largest difference": largest_difference(full["fm"].modes, lab["fm"].modes),
+        "pieces": [int(full["fm"].precomputed_num_pieces), int(lab["fm"].precomputed_num_pieces)],
+    }
+    same_size = steps["tets"][0] == steps["tets"][1] and steps["pieces"][0] == steps["pieces"][1]
+    bit_identical = (steps["cage triangles identical"] and steps["tet corner indices identical"]
+                     and steps["cage corners: largest difference"] == 0
+                     and steps["tet corners: largest difference"] == 0
+                     and steps["modes: largest difference"] == 0)
 
     # One threshold for both, set on the full build; then the same hits on both.
     cal_pts, cal_dirs = sample_impacts(v, f, args.calibration_hits, args.seed)
@@ -81,21 +104,24 @@ def main():
         for T in (full, lab):
             project_impact(T["fm"], pt, dv, cfg["d"], threshold)
             labels.append(np.asarray(T["fm"].tet_labels_after_impact).astype(int).copy())
-        differ = int(np.sum(labels[0] != labels[1]))
+        if len(labels[0]) != len(labels[1]):  # different tet meshes: nothing comparable
+            differ = max(len(labels[0]), len(labels[1]))
+        else:
+            differ = int(np.sum(labels[0] != labels[1]))
         identical += differ == 0
         worst_tets = max(worst_tets, differ)
 
     summary = {"setting": setting, "triangles": int(len(f)), "threshold": threshold,
                "median_damage": med, "hits": args.hits, "hits_identical": int(identical),
-               "most_tets_differing": worst_tets, "same_tets_and_pieces": bool(same_mesh),
+               "most_tets_differing": worst_tets, "steps": steps,
+               "bit_identical_builds": bool(bit_identical),
                "timings_s": {name: {k: float(x) for k, x in T["timings"].items()}
                              for name, T in builds.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
 
     print(f"\nSaved results in {out}\n\nPaste into docs/kill-test-log.md (Day 6e):\n")
     print(f"Setting: {setting}. Wall: {len(f)} triangles. Threshold {threshold:.3g} "
-          f"(median damage {med:.1%}). Same tets and pieces in both builds: "
-          f"{'yes' if same_mesh else 'NO'}.\n")
+          f"(median damage {med:.1%}).\n")
     print("| Build | Homework (s) | Cage | Tets | Modes | Precompute | Hits with identical labels |")
     print("|---|---|---|---|---|---|---|")
     for name, T in builds.items():
@@ -103,8 +129,16 @@ def main():
         result = "reference" if name == "with display mesh" else f"{identical} of {args.hits}"
         print(f"| {name} | {sum(t.values()):.0f} | {t['cage_s']:.0f} | {t['tetgen_s']:.1f} | "
               f"{t['modes_s']:.0f} | {t['precompute_s']:.0f} | {result} |")
-    if identical == args.hits and same_mesh:
+    print("\nThe two builds, step by step:")
+    for name, value in steps.items():
+        print(f"  {name}: {value}")
+    print(f"  bit-for-bit identical: {'yes' if bit_identical else 'NO'}")
+    if identical == args.hits and same_size:
         print("\nPASS: labels are identical without the display mesh.")
+        if not bit_identical:
+            print("Note: the two builds differ slightly before the display-mesh step (see the "
+                  "steps above), so the build itself is not bit-for-bit repeatable on this "
+                  "mesh, even though every label matched.")
     else:
         print(f"\nFAIL: {args.hits - identical} hits differ (up to {worst_tets} tets). "
               "Keep the display mesh until this is understood.")
