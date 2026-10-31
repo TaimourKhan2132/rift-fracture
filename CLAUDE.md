@@ -55,6 +55,10 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - Current choice: cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. About 470 s and 1 GB per shape. The team may switch to option B (20 modes, d=1, about 87 s per shape). Do not start bulk data generation until D1 is settled.
 - 256 Voronoi cells per shape. Labels and fragment metrics are defined at cell resolution.
 - The break threshold is not a constant: calibrate a band per shape. It acts as impact strength.
+- Strength rule (proposed decision D3): set each shape's threshold so the median random hit breaks off a fixed share of its volume (`teacher.target_damage_threshold`, 5% so far). The Day 4 "most different outcomes" rule gave very different strengths on near-identical shapes (Day 6c).
+- Build the teacher with `build_teacher(..., display_mesh=False)` when only labels are needed: identical labels, homework 278 → 111 s on a 14,000-triangle wall (Day 6e).
+- Always build the teacher through `teacher.build_teacher`: it fixes the mode solver's starting vector, without which a shape's teacher depends on the shapes built before it in the same process (Day 6e).
+- Known limits: teacher labels depend on the triangle layout (same shape, different triangles: ARI about 0.6; Day 6d), and a hit's strength depends on how many tet corners lie within 0.05 of it (Day 6c). Never compare RIFT to a single teacher run without stating this ceiling.
 - Always use fracture-modes' default projection. `project_on_modes` shatters the wall far from the hit (Day 6b).
 - The teacher's breaks do not depend on impact direction (Day 6b, paper Sec. 6). Never claim direction-dependent fracture; RIFT uses impact location and strength (proposed decision D2).
 
