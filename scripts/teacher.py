@@ -37,6 +37,35 @@ def load_shape(path):
     return gpytoolbox.normalize_points(v), f
 
 
+def fix_mode_solver_start():
+    """Give fracture-modes' eigenvalue solver a fixed starting vector (Day 6e).
+
+    fracture-modes starts its mode solve with scipy's eigsh and passes no starting
+    vector, so ARPACK draws a random one, and that random state carries over between
+    calls in the same Python process. When two eigenvalues are (nearly) equal, as on
+    a symmetric wall, the answer then depends on how many shapes were built before
+    this one: the same tets gave 476 pieces in one build and 475 in the next. A fixed
+    start makes every build of the same tets identical. Only the starting guess
+    changes, not the method. Their code is not copied or edited: we replace the
+    eigsh name inside their module at runtime.
+    """
+    module = sys.modules.get("fracture_utility.compute_fracture_modes")
+    if module is None or not hasattr(module, "eigsh"):
+        print("Warning: fracture-modes' mode solver not found; starting vector not fixed.")
+        return
+    if getattr(module.eigsh, "rift_fixed_start", False):
+        return  # already patched in this process
+    original = module.eigsh
+
+    def eigsh_fixed_start(A, *args, **kwargs):
+        if kwargs.get("v0") is None:
+            kwargs["v0"] = np.random.default_rng(0).standard_normal(A.shape[0])
+        return original(A, *args, **kwargs)
+
+    eigsh_fixed_start.rift_fixed_start = True
+    module.eigsh = eigsh_fixed_start
+
+
 def build_teacher(v_fine, f_fine, cage, d, modes, grid_size=256, minratio=1.5,
                   fm_dir=DEFAULT_FM_DIR, display_mesh=True):
     """Run every once-per-shape step. Returns a dict with the fracture_modes object and timings.
@@ -48,11 +77,15 @@ def build_teacher(v_fine, f_fine, cage, d, modes, grid_size=256, minratio=1.5,
     with thousands of triangles this step takes most of the time (Day 6d). Labels
     are unchanged (checked by scripts/label_only_check.py); pictures that colour the
     fine mesh need display_mesh=True.
+
+    The mode solver always gets a fixed starting vector (fix_mode_solver_start), so
+    the same shape gives the same teacher in any process and in any order.
     """
     sys.path.insert(0, str(fm_dir))
     import tetgen
     from gpytoolbox.copyleft import lazy_cage
     import fracture_utility as fracture
+    fix_mode_solver_start()
 
     timings = {}
     t = time.perf_counter()
