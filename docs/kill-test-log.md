@@ -23,7 +23,7 @@ Decided on: Use WSL
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
-| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. |
+| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) planned. |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
 ### Demo path (Days 1–5, in parallel)
@@ -197,6 +197,20 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - **`project_on_modes` makes direction matter a little, but breaks the wall far from the hit.** Over 90% of tilted hits change, but 93–95% of the broken-off volume stays the same. In the pictures, one hit shatters most of the wall into 20–49 pieces (locality 0.55). That is not usable as a training target.
 - **So this teacher cannot teach direction-dependent fracture.** RIFT should claim impact location and strength, not direction. Direction can still push the debris in the game's physics.
 - **Option C's remaining advantage over B is the look:** about 22 vs 15 fragments per hit. It costs about 5 times more per shape, and many of its extra chunks are smaller than a cell anyway (24 → 14.5 at 256 cells). Decision D1 is under review (`docs/decisions.md`).
+
+## Day 6c: second hit on a damaged wall (planned 31 Oct)
+
+**Question:** after a first hit knocks a crater out of the wall, can the teacher handle a second hit by reusing the intact wall's homework (seconds saved), or must it redo the homework for the damaged shape (minutes)? If reuse is nearly right, RQ3 (damaged shapes) is weak. If reuse is wrong, especially near the crater, RIFT has a real job.
+
+**Method** (`scripts/second_hit.py`): build the teacher on the intact wall and calibrate its threshold. Pick 3 first hits that each knock out 2–20% of the wall. For each, rebuild the remaining wall as a closed mesh (about 16,000 triangles, about 1% volume lost), redo the homework on it and calibrate its own threshold. Hit it 40 times, half near the crater (< 0.15) and half far, with both reuse and redo. Compare the two breaks on the remaining wall's voxels.
+
+- **Control:** the intact wall rebuilt through the same pipeline, with no crater. Reuse and redo can disagree here only because of the rebuild itself. Damage matters only as far as the crater rows fall below the control.
+- **Fair to reuse:** after each break, both methods re-check which voxels still touch, so reuse cannot keep pieces joined through material that is already gone.
+- **Same threshold column:** redo at the intact wall's threshold, to separate the effect of the new shape from the effect of a new threshold.
+
+**Results:** to fill in from the script's printed table (option B first; option C if time allows).
+
+**What this means:** to fill in.
 
 ## Threats found (Day 6)
 
