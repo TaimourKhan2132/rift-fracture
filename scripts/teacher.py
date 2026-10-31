@@ -106,10 +106,18 @@ def sample_impacts(v_fine, f_fine, n, seed):
     return points, directions
 
 
-def project_impact(fm, point, direction3, d, threshold):
-    """Call fracture-modes' own impact_projection (the authoritative result)."""
+def project_impact(fm, point, direction3, d, threshold, project_on_modes=False):
+    """Call fracture-modes' own impact_projection (the authoritative result).
+
+    project_on_modes=False (fracture-modes' default): the impact is fitted per piece
+    by least squares. Every axis is treated identically, so a unit impact direction
+    has NO effect on which pieces break (only its length would).
+    project_on_modes=True: the impact is projected onto the fracture modes
+    themselves, which can make the break depend on the impact direction.
+    """
     direction = direction3 if d == 3 else np.array([1.0])
-    fm.impact_projection(contact_point=point, direction=direction, threshold=threshold)
+    fm.impact_projection(contact_point=point, direction=direction, threshold=threshold,
+                         project_on_modes=project_on_modes)
 
 
 def piece_distances(fm):
