@@ -11,6 +11,11 @@ cutting took 166 of 251 s (Day 6d). This script checks the claim instead of trus
   2. set one threshold (target damage, 5%) and hit both at the same 40 points,
   3. every tet's fragment label must be identical, hit for hit.
 
+It also compares the two builds step by step (cage, tets, modes, pieces). With the
+mode solver's starting vector fixed (teacher.fix_mode_solver_start), two builds of
+the same wall should now be bit-for-bit identical; the first run of this check,
+before that fix, found different modes and 476 vs 475 pieces.
+
 The default wall is the Day 3 wall cut into 14,336 triangles (the same shape),
 because that is where the time goes.
 
@@ -133,12 +138,13 @@ def main():
     for name, value in steps.items():
         print(f"  {name}: {value}")
     print(f"  bit-for-bit identical: {'yes' if bit_identical else 'NO'}")
-    if identical == args.hits and same_size:
-        print("\nPASS: labels are identical without the display mesh.")
-        if not bit_identical:
-            print("Note: the two builds differ slightly before the display-mesh step (see the "
-                  "steps above), so the build itself is not bit-for-bit repeatable on this "
-                  "mesh, even though every label matched.")
+    print(f"\nRepeatable build (same wall twice gives the same teacher): "
+          f"{'yes' if bit_identical else 'NO'}")
+    if identical == args.hits and steps["tets"][0] == steps["tets"][1]:
+        print("PASS: labels are identical without the display mesh.")
+        if not same_size:
+            print("Note: piece counts differ, so the builds differ before the display-mesh "
+                  "step (mode solve); the labels still matched on every hit.")
     else:
         print(f"\nFAIL: {args.hits - identical} hits differ (up to {worst_tets} tets). "
               "Keep the display mesh until this is understood.")
