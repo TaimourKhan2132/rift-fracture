@@ -50,12 +50,13 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - **Never copy its code into this repo** (academic, non-commercial licence).
 - The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo. It expires after 365 days.
 
-## Teacher settings (decision D1, provisional; see `docs/decisions.md`)
+## Teacher settings (decision D1, under review; see `docs/decisions.md`)
 
-- Cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. About 470 s and 1 GB per shape.
+- Current choice: cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. About 470 s and 1 GB per shape. The team may switch to option B (20 modes, d=1, about 87 s per shape). Do not start bulk data generation until D1 is settled.
 - 256 Voronoi cells per shape. Labels and fragment metrics are defined at cell resolution.
 - The break threshold is not a constant: calibrate a band per shape. It acts as impact strength.
-- With fracture-modes' default projection, impact direction has no effect on the break. Do not claim direction-awareness until `scripts/direction_check.py` (Day 6b) shows otherwise.
+- Always use fracture-modes' default projection. `project_on_modes` shatters the wall far from the hit (Day 6b).
+- The teacher's breaks do not depend on impact direction (Day 6b, paper Sec. 6). Never claim direction-dependent fracture; RIFT uses impact location and strength (proposed decision D2).
 
 ## Rules
 
