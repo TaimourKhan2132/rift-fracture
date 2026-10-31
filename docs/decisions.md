@@ -2,6 +2,16 @@
 
 Decisions that shape the dataset or the model, with the evidence behind them. Newest first.
 
+## D3: Strength means the same broken-off share on every shape (1 Nov 2026, proposed)
+
+**Proposal:** set each shape's break threshold so that the median random hit breaks off a fixed share of the shape's volume (5% so far; a band of shares for weak to strong hits). This replaces Day 4's rule (the threshold giving the most different outcomes).
+
+**Why:** Day 4's rule gave thresholds from 64 to 210 on near-identical walls (Day 6c): on one wall a hit broke off a quarter of it, on another 6%. Strength would mean different things on different shapes, and the network could not learn it as an input. The target-damage rule hit 4.9–5.0% on four versions of the same wall (Day 6d) and made the second-hit comparison fair (Day 6c re-run).
+
+**Open:** which shares to use for weak, medium and strong hits.
+
+**Status:** waiting for the team's agreement.
+
 ## D2: RIFT claims impact location and strength, not direction (31 Oct 2026, proposed)
 
 **Proposal:** RIFT predicts how a shape breaks from where it is hit and how hard. It does not claim that the hit direction changes which pieces break. In the game demo, direction only pushes the debris.
