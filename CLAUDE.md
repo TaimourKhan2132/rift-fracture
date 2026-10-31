@@ -50,6 +50,13 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - **Never copy its code into this repo** (academic, non-commercial licence).
 - The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo. It expires after 365 days.
 
+## Teacher settings (decision D1, provisional; see `docs/decisions.md`)
+
+- Cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. About 470 s and 1 GB per shape.
+- 256 Voronoi cells per shape. Labels and fragment metrics are defined at cell resolution.
+- The break threshold is not a constant: calibrate a band per shape. It acts as impact strength.
+- With fracture-modes' default projection, impact direction has no effect on the break. Do not claim direction-awareness until `scripts/direction_check.py` (Day 6b) shows otherwise.
+
 ## Rules
 
 - Never commit `data/`, `outputs/`, checkpoints, model files or licence files.
@@ -72,7 +79,8 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 - `scripts/time_fracture.py`: Day 3 timing across cage sizes and mode dimensions.
 - `scripts/sweep_threshold.py`: Day 4 break-threshold sweep; writes `outputs/day4/chosen.json`.
 - `scripts/cell_graph.py`: Day 5 Voronoi cells, links and break labels from teacher results.
-- `scripts/teacher.py`: shared helpers for the two above (not run directly).
+- `scripts/direction_check.py`: Day 6b check of whether impact direction changes the break, for both fracture-modes projections.
+- `scripts/teacher.py`: shared helpers for the scripts above (not run directly).
 - `scripts/export_sentis_test.py` (**rift-train**): exports the two Sentis test models (dense vs scatter graph layer) to `outputs/sentis_test/`.
 - `unity/SentisTest/SentisSmokeTest.cs`: Unity script that runs those models on every Sentis backend. Copy it into a separate Unity test project; the real Unity project is not in the repo yet.
 
