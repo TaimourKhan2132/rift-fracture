@@ -23,7 +23,7 @@ Decided on: Use WSL
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
-| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) planned. |
+| 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem (see Day 6c). |
 | 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
 
 ### Demo path (Days 1–5, in parallel)
@@ -198,7 +198,7 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - **So this teacher cannot teach direction-dependent fracture.** RIFT should claim impact location and strength, not direction. Direction can still push the debris in the game's physics.
 - **Option C's remaining advantage over B is the look:** about 22 vs 15 fragments per hit. It costs about 5 times more per shape, and many of its extra chunks are smaller than a cell anyway (24 → 14.5 at 256 cells). Decision D1 is under review (`docs/decisions.md`).
 
-## Day 6c: second hit on a damaged wall (planned 31 Oct)
+## Day 6c: second hit on a damaged wall (31 Oct)
 
 **Question:** after a first hit knocks a crater out of the wall, can the teacher handle a second hit by reusing the intact wall's homework (seconds saved), or must it redo the homework for the damaged shape (minutes)? If reuse is nearly right, RQ3 (damaged shapes) is weak. If reuse is wrong, especially near the crater, RIFT has a real job.
 
@@ -208,9 +208,24 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - **Fair to reuse:** after each break, both methods re-check which voxels still touch, so reuse cannot keep pieces joined through material that is already gone.
 - **Same threshold column:** redo at the intact wall's threshold, to separate the effect of the new shape from the effect of a new threshold.
 
-**Results:** to fill in from the script's printed table (option B first; option C if time allows).
+**Results, option B** (`outputs/day6c_B/`). Intact wall (56 triangles): homework 96 s, threshold 142.5. Craters: 4%, 4% and 6% of the wall.
 
-**What this means:** to fill in.
+| Second hits on | Hits | Redo homework (s) | Rebuilt threshold | ARI reuse vs redo | Same threshold | Detached IoU | Fragments reuse / redo |
+|---|---|---|---|---|---|---|---|
+| Control: intact wall, rebuilt | 40 | 307 | 129 | 0.63 | 0.62 | 0.52 | 9.0 / 14.1 |
+| Damaged wall, near crater (< 0.15) | 60 | 219, 245, 234 | 64, 105, 210 | 0.41 | 0.49 | 0.34 | 7.4 / 16.2 |
+| Damaged wall, far from crater | 60 | 219, 245, 234 | 64, 105, 210 | 0.44 | 0.57 | 0.37 | 9.8 / 18.0 |
+
+Per crater (ARI near / far): crater 0 (threshold 64) 0.25 / 0.27, and redo breaks off 22–31% of the wall per hit against 4–7% for reuse; crater 1 (105) 0.38 / 0.46; crater 2 (210) 0.59 / 0.58.
+
+**What this means:**
+
+- **The test cannot answer its question yet.** Two effects are bigger than the damage itself.
+- **The teacher is sensitive to the mesh.** Rebuilding the intact wall (same shape, 16,000 slightly rounded triangles instead of 56 flat ones) changes the break: ARI 0.63, and only half the broken-off volume overlaps. At the same threshold the result is the same (0.62), so the mesh causes it, not the threshold.
+- **The Day 4 threshold rule gives different strength on near-identical shapes.** Rebuilt walls got thresholds from 64 to 210. At 64, redo breaks off a quarter of the wall per hit. Crater 0's low score comes from this, not from the crater.
+- **No sign that the crater matters locally:** near and far hits score the same (0.41 vs 0.44). Where strength roughly matched (crater 2), reuse vs redo (0.58) is as good as the control (0.63). So far, small craters (4–6%) do not need new homework beyond the teacher's own mesh noise.
+- **Realistic meshes cost more:** homework on the 16,000-triangle walls took 219–307 s against 96 s for the 56-triangle original. Game meshes have thousands of triangles, so option B may cost about 3 times the 87 s budgeted.
+- **Option C run postponed:** it would repeat the same two problems. Next, Day 6d separates the causes of the mesh sensitivity and tests a strength rule that holds across shapes.
 
 ## Threats found (Day 6)
 
@@ -222,6 +237,9 @@ Bunny mesh, 2,000-face cage, giving 1,270 vertices and 4,048 tetrahedra.
 - (Found Day 4b) Debris size is capped by cell size: crater chunks smaller than a cell merge into cell-sized debris. Ground truth and fragment metrics must be defined at cell resolution, and the proposal must say so.
 - (Found Day 3) With the default break threshold, every impact shatters the wall into the maximum number of pieces, so the labels don't depend on where you hit. Unless Day 4 finds thresholds that give varied outcomes, there is nothing for the network to learn.
 - (Found Day 6) The teacher's breaks do not depend on impact direction (paper Sec. 6, Fig. 21; Day 6b: 0% of tilted hits changed). The only mode where direction matters shatters the wall far from the hit. RIFT cannot promise direction-dependent fracture; the README and proposal must say "impact location and strength".
+- (Found Day 6c) Teacher labels depend on the mesh, not only the shape: a rebuilt copy of the same wall agrees at ARI 0.63. This is label noise. It caps how closely any student can match the teacher, so the evaluation must report teacher-vs-teacher agreement as the ceiling.
+- (Found Day 6c) The Day 4 threshold rule (most different outcomes) gives different strength on near-identical shapes (thresholds 64–210). Strength must mean the same thing on every shape before bulk generation.
+- (Found Day 6c) Homework on a 16,000-triangle wall takes 219–307 s for option B, about 3 times the 56-triangle wall. Dataset time estimates must use realistic meshes.
 - (Found Day 6, in RIFT's favour) The paper's authors did not simulate secondary fractures and say per-piece modes would exceed realtime constraints. RQ3 (damaged shapes) is supported by the method's own limitations.
 
 ## Go / no-go (Day 7)
