@@ -38,50 +38,15 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # find teacher.py next to this file
-from teacher import (DEFAULT_FM_DIR, build_teacher, decide, load_shape, piece_distances,
-                     project_impact, sample_impacts, tet_volumes_and_centroids)
+from teacher import (DEFAULT_FM_DIR, build_teacher, decide, hit_distances, load_shape,
+                     median_damage, piece_volumes, project_impact, sample_impacts,
+                     target_damage_threshold)
 from cell_graph import locate_in_tets, voxelize
 from second_hit import (MIN_FRAGMENT, PRESETS, ari, calibrate, count_fragments, damaged_mesh,
                         detached, iou, split_disconnected)
 
 
 # ---------------------------------------------------------------- helpers
-
-
-def distances_for(fm, point, direction, d):
-    """Piece-pair distances for one hit (they do not depend on the threshold)."""
-    project_impact(fm, point, direction, d, 1.0)
-    return piece_distances(fm)
-
-
-def damage_share(fm, dists, piece_vol, threshold):
-    """Share of the volume that breaks off (everything outside the largest fragment)."""
-    _, lab = decide(fm, dists, threshold)
-    frag_vol = np.bincount(lab, weights=piece_vol)
-    return 1.0 - frag_vol.max() / piece_vol.sum()
-
-
-def median_damage(fm, dists_list, piece_vol, threshold):
-    return float(np.median([damage_share(fm, d, piece_vol, threshold) for d in dists_list]))
-
-
-def target_damage_threshold(fm, dists_list, piece_vol, target):
-    """Threshold at which the median hit breaks off `target` of the volume.
-
-    A higher threshold keeps more pieces joined, so damage only falls as the threshold
-    rises. Bisection on log(threshold) finds where the median crosses the target.
-    """
-    pooled = np.concatenate(dists_list)
-    pooled = pooled[pooled > 0]
-    lo, hi = np.log(pooled.min() * 0.5), np.log(pooled.max() * 2.0)
-    for _ in range(40):
-        mid = 0.5 * (lo + hi)
-        if median_damage(fm, dists_list, piece_vol, np.exp(mid)) > target:
-            lo = mid  # too much damage: raise the threshold
-        else:
-            hi = mid
-    thr = float(np.exp(hi))
-    return thr, median_damage(fm, dists_list, piece_vol, thr)
 
 
 def voxel_labels(fm, dists, threshold, tet_piece, voxel_tet, vox_index):
@@ -149,20 +114,19 @@ def main():
         T = build_teacher(V, F, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
                           args.minratio, args.fm_dir)
         fm = T["fm"]
-        tet_vol, _ = tet_volumes_and_centroids(T["nodes"], T["elements"])
         tet_piece = np.asarray(fm.piece_to_tet_matrix.argmax(axis=1)).ravel()
-        piece_vol = np.bincount(tet_piece, weights=tet_vol, minlength=fm.precomputed_num_pieces)
+        piece_vol = piece_volumes(T)
         vt, missed = locate_in_tets(vox, T["nodes"], T["elements"])
 
         # Rule A: the Day 4 rule, exactly as Day 6c used it (points on this version's surface).
         best_a, _, _, _, _ = calibrate(T, V, F, args.calibration_hits, args.thresholds, args.seed)
         thr_a = float(best_a["threshold"])
         # Rule B: target damage, on the shared calibration hits.
-        cal_d = [distances_for(fm, pt, dv, cfg["d"]) for pt, dv in zip(cal_pts, cal_dirs)]
+        cal_d = [hit_distances(fm, pt, dv, cfg["d"]) for pt, dv in zip(cal_pts, cal_dirs)]
         thr_b, med_b = target_damage_threshold(fm, cal_d, piece_vol, args.target_damage)
         med_a = median_damage(fm, cal_d, piece_vol, thr_a)
 
-        hit_d = [distances_for(fm, pt, dv, cfg["d"]) for pt, dv in zip(hit_pts, hit_dirs)]
+        hit_d = [hit_distances(fm, pt, dv, cfg["d"]) for pt, dv in zip(hit_pts, hit_dirs)]
         lab_a = [voxel_labels(fm, d, thr_a, tet_piece, vt, vox_index).astype(np.int32)
                  for d in hit_d]
         lab_b = [voxel_labels(fm, d, thr_b, tet_piece, vt, vox_index).astype(np.int32)
