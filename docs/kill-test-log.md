@@ -19,7 +19,7 @@ Decided on: Use WSL
 | Day | Date | Task | Pass when | Done | Notes |
 |---|---|---|---|---|---|
 | 1 | Tue 27 Oct | Install fracture-modes in `rift-teacher` | `scripts/example.py` finishes in ~15 s and prints its success message | [x] | Passed 27 Oct on TKR's laptop. See "Day 1 results". |
-| 2 | Wed 28 Oct | Buffer. Export the working environment to a file; rebuild it on the second laptop | Second laptop runs the example too | [ ] | |
+| 2 | Wed 28 Oct | Buffer. Export the working environment to a file; rebuild it on the second laptop | Second laptop runs the example too | [x] | Passed 1 Nov on Waleed's laptop: 20/20, example ran, wall at cage 2000 d=3 gave 3,774 tets (identical). See "Environment record". |
 | 3 | Thu 29 Oct | Wall with a window. Time the mode solve at coarse, medium and fine cage sizes | Table below filled in | [x] | Done 29 Oct. Per shape 22–45 s; impact 5–37 ms (d=3). Red flag: every impact gives the same break. See "Day 3 timing". |
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
@@ -41,7 +41,7 @@ Decided on: Use WSL
 - Package versions that worked:
   - Linux dry run (26 Oct): numpy 1.26.4, scipy 1.13.1, scikit-sparse 0.4.16, mosek 11.2.7, libigl 2.4.1, gpytoolbox 0.0.1, tetgen 0.6.4, polyscope 2.5.0, scikit-image 0.24.0. `check_env.py`: 18/20 passed; the 2 failures are the MOSEK checks (no licence on that machine).
   - Windows, TKR's laptop (27 Oct): Python 3.9.23, same package versions as the dry run. `check_env.py`: 20/20 passed. Their `example.py` ran successfully.
-  - Windows, Waleed's laptop:
+  - Windows, Waleed's laptop (1 Nov): Python 3.9.23, same package versions as TKR's laptop (mosek 11.2.7). `check_env.py`: 20/20 passed. Their `example.py` ran successfully (0.85 s per mode, 20 s wall time). `time_fracture.py --cage-sizes 2000 --dims 3` (Ryzen 7 7445HS, 15 GB RAM, on charger): 3,774 tets, pieces median 5 / max 5, per shape 35.5 s (cage 22.1, modes 12.2, precompute 1.16), impact 11.10 ms, peak RAM 463 MB. Tets and pieces identical to TKR's laptop, so both laptops build the same teacher. Notes: Miniforge and the repo are under `C:\dev\` because the Windows username contains a space.
 - Problems hit and how they were fixed (found in the Linux dry run, before Day 1):
   - `pip install scikit-sparse` fails: it needs `cholmod.h` and a C compiler. Fix: install it from conda-forge.
   - polyscope 2.6.1 crashes on import under Python 3.9 (uses 3.10+ syntax). fracture-modes imports it at load time. Fix: pin 2.5.0.
