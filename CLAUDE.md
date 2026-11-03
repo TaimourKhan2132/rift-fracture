@@ -39,6 +39,7 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - Pinned versions. Do not change any of these without re-running `scripts/check_env.py`:
   - python 3.9, numpy <2, scikit-sparse 0.4.16 (conda-forge), mosek 11.2 (mosek channel)
   - libigl 2.4.1, gpytoolbox 0.0.1, polyscope 2.5.0, tetgen 0.6.4, scikit-image 0.24.0 (pip)
+  - rich 14.3.4 with markdown-it-py 3.0.0, mdurl 0.1.2, pygments 2.21.0 (pip; terminal output only, optional)
   - Reasons are in `docs/setup-windows.md`. Newer libigl and polyscope break fracture-modes.
 - `python scripts/check_env.py` must report all checks passed before any data generation.
 
@@ -74,6 +75,7 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - In writing, say "matches a physics-based reference", never "real fracture".
 - **Dataset quality beats generation speed.** Never lower teacher settings (cage grid size, cage faces, number of modes) or skip quality checks to save time, unless the Day 4/5 checks show quality holds.
 - Every label setting must be checked for variety: if every hit gives the same outcome, the labels are useless (Day 3 red flag).
+- Every new long-running script wraps its work in `ui.Run` (steps, `run.track` for loops, `run.table` for results, `run.log_markdown` for the log table), so progress shows in the terminal and on the dashboard. Never print raw Markdown tables to the terminal.
 
 ## Scripts
 
@@ -89,6 +91,8 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 - `scripts/repeat_check.py`: Day 6d check of how much the teacher's break depends on the mesh (same file twice, finer triangles, rounded rebuild), and of a target-damage threshold rule.
 - `scripts/label_only_check.py`: Day 6e check that labels are identical when the teacher skips the display-mesh step (`build_teacher(..., display_mesh=False)`), and how much time that saves.
 - `scripts/teacher.py`: shared helpers for the scripts above (not run directly).
+- `scripts/ui.py`: readable terminal output for every long script: steps with timers, progress bars with time left, aligned tables, and the log table saved as `<out_dir>/log_table.md` (not run directly).
+- `scripts/dashboard.py`: builds `outputs/dashboard.html`, a local page with the run in progress and every results folder. Scripts using `ui.Run` keep it updated; `python scripts/dashboard.py --open` rebuilds and opens it.
 - `scripts/export_sentis_test.py` (**rift-train**): exports the two Sentis test models (dense vs scatter graph layer) to `outputs/sentis_test/`.
 - `unity/SentisTest/SentisSmokeTest.cs`: Unity script that runs those models on every Sentis backend. Copy it into a separate Unity test project; the real Unity project is not in the repo yet.
 
