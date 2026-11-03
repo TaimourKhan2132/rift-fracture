@@ -24,7 +24,7 @@ Decided on: Use WSL
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
 | 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher depends on the triangle layout. Label-only check (6e) done: labels do not need the display mesh (homework 278 → 111 s); found and fixed a repeatability bug in the mode solve (fix verified). 6c re-run with matched strength: no clean evidence for RQ3. |
-| 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | |
+| 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | Draft written 3 Nov (proposed: GO); waiting for team agreement. |
 
 ### Demo path (Days 1–5, in parallel)
 
@@ -34,7 +34,7 @@ Decided on: Use WSL
 | Export model A: message passing as plain matrix multiply (adjacency × features) | ONNX file loads in Sentis and prints output | [x] | PASS on CPU, GPUCompute and GPUPixel. See "Demo path results". |
 | Export model B: same layer using scatter (index-add of neighbour messages) | ONNX file loads in Sentis and prints output | [x] | Loads and runs everywhere, but correct only on CPU: wrong numbers on both GPU backends, with no error. See "Demo path results". |
 
-## Demo path results: Sentis smoke test (Waleed's laptop, 3 Nov)
+## Demo path results: Sentis smoke test (both laptops, 3 Nov)
 
 **Setup:**
 - Models from `scripts/export_sentis_test.py` (`rift-train`: torch 2.15.0+cpu, onnx 1.23.2, onnxscript 0.7.2). Model A ops: MatMul, Relu. Model B ops include `ScatterND(reduction=add)`.
@@ -53,12 +53,23 @@ Decided on: Use WSL
 
 Console summary: `Done: 4 of 6 model/backend combinations passed.`
 
+**Reproduced on the second laptop (TKR's, 3 Nov):** Unity 6.6 (6000.6.7f1), Sentis 2.6.1, models exported on that laptop. Same pattern, 4 of 6 passed:
+
+| Model | Backend | Result | Max error | ms per run |
+|---|---|---|---|---|
+| A (dense) | CPU | PASS | 4.9E-07 | 0.048 |
+| B (scatter) | CPU | PASS | 5.4E-07 | 0.072 |
+| A (dense) | GPUCompute | PASS | 4.9E-07 | 1.191 |
+| B (scatter) | GPUCompute | FAIL | 4.0E-01 | 0.679 |
+| A (dense) | GPUPixel | PASS | 5.2E-07 | 1.750 |
+| B (scatter) | GPUPixel | FAIL | 5.1E-01 | 3.668 |
+
 **What this means:**
 
-- **The demo path works.** A graph layer written as matrix multiplies runs correctly in Unity on every backend, so the Python-server fallback is not needed.
-- **Scatter-add is correct only on the CPU.** On both GPU backends model B runs without any error but returns wrong numbers (errors 0.42–0.51). A plain "does it load" check would have missed this. Sentis' operator list warned about GPUCompute; GPUPixel fails too.
-- **The CPU is the fastest backend for graphs this small:** 0.06–0.07 ms against 1.2–6.8 ms on the GPU, where moving data to and from the GPU costs more than the maths. Every result is under one frame at 60 fps (16.7 ms). The real graphs (up to 256 cells, 3–4 layers) will be slower; to be timed once a model exists.
-- **Proposed for the model (to decide together):** write RIFT's message-passing layers as matrix multiplies (dense adjacency, at most 256 × 256) and run on Sentis' CPU backend in the demo. This works on every backend, and a later switch to a GPU backend cannot silently give wrong breaks.
+- **The demo path works.** A graph layer written as matrix multiplies runs correctly in Unity on every backend, on both laptops and two Unity versions (6.3 LTS and 6.6), so the Python-server fallback is not needed.
+- **Scatter-add is correct only on the CPU.** On both GPU backends model B runs without any error but returns wrong numbers (errors 0.40–0.51). The GPUCompute error differed between the two laptops (0.40 vs 0.42), so the wrong answer is not even repeatable. A plain "does it load" check would have missed this. Sentis' operator list warned about GPUCompute; GPUPixel fails too.
+- **The CPU is the fastest backend for graphs this small:** 0.05–0.07 ms against 0.7–6.8 ms on the GPU, where moving data to and from the GPU costs more than the maths. Every result is under one frame at 60 fps (16.7 ms). The real graphs (up to 256 cells, 3–4 layers) will be slower; to be timed once a model exists.
+- **Proposed for the model (to decide together):** write RIFT's message-passing layers as matrix multiplies (dense adjacency, at most 256 × 256) and run on Sentis' CPU backend in the demo. This works on every backend, and a later switch to a GPU backend cannot silently give wrong breaks. Recorded as decision D4 (`docs/decisions.md`).
 
 ## Environment record (Day 1–2)
 
@@ -328,12 +339,24 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 
 ## Go / no-go (Day 7)
 
-- Install works on both laptops from the environment file: yes / no
-- Solve time per shape at usable quality: 41–83 s (cage 2,000–5,000, 20 modes, d=3; Day 4)
+- Install works on both laptops from the written recipe (`docs/setup-windows.md`): yes. 20 of 20 checks on both, and identical results (3,774 tets for the same wall on both laptops).
+- Solve time per shape at usable quality: about 111 s for option B on a realistic 14,000-triangle mesh, labels only (Day 6e); about 470 s for option C on the simple wall (Day 4b)
 - If the solve is around a second, the argument shifts to damaged and procedural shapes: no, the solve is 26–87 s. But the per-impact decision is 0.2–0.4 ms, so RIFT's argument is the per-shape cost only
-- Sentis model A loads: yes (correct on CPU, GPUCompute and GPUPixel). Model B loads: yes, but correct only on CPU; wrong results on both GPU backends (Demo path results, 3 Nov)
+- Sentis model A loads: yes, correct on CPU, GPUCompute and GPUPixel. Model B loads: yes, but correct only on CPU; wrong results on both GPU backends. Same on both laptops (Demo path results, 3 Nov)
 - Does fracture-modes already handle damaged shapes or repeated impacts? No. Secondary fractures were not simulated, and per-piece modes "would exceed realtime constraints" (paper Sec. 6; pages to confirm)
 
-**Decision:** GO / NO-GO
+**Decision:** GO (draft, 3 Nov 2026; to be confirmed by the team)
 
-**Reason:**
+**Reason:** every check that could have killed the idea passed.
+
+- The teacher installs natively on Windows and gives identical results on both laptops.
+- It gives varied, local breaks (81–100 different breaks from 100 hits) that 256 cells carry with 94.6–97.1% purity.
+- A graph layer built from matrix multiplies runs correctly inside Unity on every backend, in 0.05–0.07 ms on the CPU for a small test graph, on both laptops.
+- Preparing one new shape takes the teacher about 2 minutes (111 s, option B), which a game cannot spend while it runs. That is the cost RIFT removes. Per hit the teacher is already fast (0.2–0.4 ms), so RIFT's case rests on new and procedural shapes, not on per-hit speed.
+
+**Conditions on GO (changes to the plan):**
+
+- Claim impact location and strength, not direction (D2).
+- Report the teacher's own disagreement under re-triangulation (about 0.6 ARI) as the ceiling when scoring RIFT (Day 6d).
+- RQ3 (damaged shapes) stays open until a fair test exists (Day 6c); reword it if that test shows reusing the intact shape's preparation is as good as redoing it.
+- Settle D1 (teacher setting), D3 (strength rule) and D4 (layers as matrix multiplies, CPU backend) before bulk data generation.
