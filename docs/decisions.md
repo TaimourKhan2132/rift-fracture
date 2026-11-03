@@ -2,6 +2,16 @@
 
 Decisions that shape the dataset or the model, with the evidence behind them. Newest first.
 
+## D4: Graph layers are matrix multiplies, run on Sentis' CPU backend (3 Nov 2026, proposed)
+
+**Proposal:** write RIFT's message-passing layers as matrix multiplies over a dense adjacency matrix (at most 256 × 256), never as scatter operations, and run the network on Sentis' CPU backend in the demo.
+
+**Why:** the Sentis smoke test (kill-test log, Demo path results), run on both laptops with Unity 6.3 LTS and 6.6. The matrix-multiply layer was correct on CPU, GPUCompute and GPUPixel. The scatter layer was correct only on the CPU and silently wrong on both GPU backends (errors 0.40–0.51, not even the same between the two laptops). For the 6-cell test graph the CPU was also fastest: 0.05–0.07 ms against 0.7–6.8 ms on the GPU.
+
+**Open:** timing at the real size (256 cells, 3–4 layers) once a model exists.
+
+**Status:** waiting for the team's agreement.
+
 ## D3: Strength means the same broken-off share on every shape (1 Nov 2026, proposed)
 
 **Proposal:** set each shape's break threshold so that the median random hit breaks off a fixed share of the shape's volume (5% so far; a band of shares for weak to strong hits). This replaces Day 4's rule (the threshold giving the most different outcomes).
