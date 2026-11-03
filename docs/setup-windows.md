@@ -31,11 +31,13 @@ conda create -n rift-teacher -c conda-forge python=3.9 "numpy<2" scipy scikit-sp
 conda activate rift-teacher
 conda install -c mosek mosek=11.2
 python -m pip install "numpy<2" libigl==2.4.1 gpytoolbox==0.0.1 tetgen==0.6.4 polyscope==2.5.0 scikit-image==0.24.0 tqdm
+python -m pip install rich==14.3.4 markdown-it-py==3.0.0 mdurl==0.1.2 pygments==2.21.0
 ```
 
 - Conda goes first and pip goes last: conda can silently overwrite packages pip installed.
 - `"numpy<2"` appears in the pip line too, so pip can never upgrade it.
 - tetgen pulls in pyvista and VTK, so the pip step downloads a few hundred MB.
+- The second pip line adds `rich`, which draws the progress bars and tables in the terminal (`scripts/ui.py`). Scripts still run without it, in plain text.
 
 ## 3. Check it
 
@@ -70,6 +72,8 @@ fracture-modes was written in 2022. Newer releases of some libraries changed the
 | tetgen | 0.6.4 | Tested version. `tetrahedralize()` returns two values, as their code expects. |
 | scikit-image | 0.24.0 | Last release for Python 3.9. |
 | tqdm | any | Used by their dataset generator but missing from their `requirements.txt`. |
+| rich | 14.3.4 | Progress bars and aligned tables in the terminal (`scripts/ui.py`). Optional: scripts fall back to plain text. |
+| markdown-it-py, mdurl, pygments | 3.0.0, 0.1.2, 2.21.0 | What rich needs. markdown-it-py 4.x needs Python 3.10+, so it is pinned to the last 3.9 release. |
 
 ## If something fails
 
