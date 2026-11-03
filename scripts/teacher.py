@@ -87,21 +87,30 @@ def build_teacher(v_fine, f_fine, cage, d, modes, grid_size=256, minratio=1.5,
     import fracture_utility as fracture
     fix_mode_solver_start()
 
+    try:  # live progress when the script runs inside ui.Run; silent otherwise
+        from ui import substep
+    except ImportError:
+        substep = lambda name: None
+
     timings = {}
+    substep("homework 1/4: cage")
     t = time.perf_counter()
     cage_v, cage_f = lazy_cage(v_fine, f_fine, num_faces=cage, grid_size=grid_size)
     timings["cage_s"] = time.perf_counter() - t
 
+    substep("homework 2/4: tets")
     t = time.perf_counter()
     nodes, elements = tetgen.TetGen(cage_v, cage_f).tetrahedralize(minratio=minratio)
     timings["tetgen_s"] = time.perf_counter() - t
 
     fm = fracture.fracture_modes(nodes, elements)
     params = fracture.fracture_modes_parameters(num_modes=modes, verbose=False, d=d)
+    substep("homework 3/4: modes (the slow part)")
     t = time.perf_counter()
     fm.compute_modes(parameters=params)
     timings["modes_s"] = time.perf_counter() - t
 
+    substep("homework 4/4: precompute")
     t = time.perf_counter()
     if display_mesh:
         fm.impact_precomputation(v_fine=v_fine, f_fine=f_fine)
