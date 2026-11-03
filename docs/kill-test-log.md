@@ -30,9 +30,35 @@ Decided on: Use WSL
 
 | Task | Pass when | Done | Notes |
 |---|---|---|---|
-| Install Unity 6 LTS and the Sentis package | Empty scene runs | [ ] | |
-| Export model A: message passing as plain matrix multiply (adjacency × features) | ONNX file loads in Sentis and prints output | [ ] | |
-| Export model B: same layer using scatter (index-add of neighbour messages) | ONNX file loads in Sentis and prints output | [ ] | |
+| Install Unity 6 LTS and the Sentis package | Empty scene runs | [x] | Done 3 Nov on Waleed's laptop: Unity 6.3 LTS (6000.3.27f2), Sentis (`com.unity.ai.inference`) 2.6.1, test project outside the repo. |
+| Export model A: message passing as plain matrix multiply (adjacency × features) | ONNX file loads in Sentis and prints output | [x] | PASS on CPU, GPUCompute and GPUPixel. See "Demo path results". |
+| Export model B: same layer using scatter (index-add of neighbour messages) | ONNX file loads in Sentis and prints output | [x] | Loads and runs everywhere, but correct only on CPU: wrong numbers on both GPU backends, with no error. See "Demo path results". |
+
+## Demo path results: Sentis smoke test (Waleed's laptop, 3 Nov)
+
+**Setup:**
+- Models from `scripts/export_sentis_test.py` (`rift-train`: torch 2.15.0+cpu, onnx 1.23.2, onnxscript 0.7.2). Model A ops: MatMul, Relu. Model B ops include `ScatterND(reduction=add)`.
+- Unity 6.3 LTS (6000.3.27f2), Sentis 2.6.1, `unity/SentisTest/SentisSmokeTest.cs`, Editor Play mode.
+- Laptop: Ryzen 7 7445HS (CPU backend). GPU backends ran on the NVIDIA GeForce RTX 4050 Laptop GPU, DX12 (confirmed in Unity's `Editor.log`).
+- Test graph: 6 cells, 14 directed links, 48 output values. Pass when the largest error against `expected_output.txt` is below 1e-4. Time is the mean of 20 runs after one warm-up, including the download of the result.
+
+| Model | Backend | Result | Max error | ms per run |
+|---|---|---|---|---|
+| A (dense) | CPU | PASS | 4.9E-07 | 0.074 |
+| B (scatter) | CPU | PASS | 5.4E-07 | 0.060 |
+| A (dense) | GPUCompute | PASS | 4.9E-07 | 6.774 |
+| B (scatter) | GPUCompute | FAIL | 4.2E-01 | 1.207 |
+| A (dense) | GPUPixel | PASS | 5.2E-07 | 3.094 |
+| B (scatter) | GPUPixel | FAIL | 5.1E-01 | 5.552 |
+
+Console summary: `Done: 4 of 6 model/backend combinations passed.`
+
+**What this means:**
+
+- **The demo path works.** A graph layer written as matrix multiplies runs correctly in Unity on every backend, so the Python-server fallback is not needed.
+- **Scatter-add is correct only on the CPU.** On both GPU backends model B runs without any error but returns wrong numbers (errors 0.42–0.51). A plain "does it load" check would have missed this. Sentis' operator list warned about GPUCompute; GPUPixel fails too.
+- **The CPU is the fastest backend for graphs this small:** 0.06–0.07 ms against 1.2–6.8 ms on the GPU, where moving data to and from the GPU costs more than the maths. Every result is under one frame at 60 fps (16.7 ms). The real graphs (up to 256 cells, 3–4 layers) will be slower; to be timed once a model exists.
+- **Proposed for the model (to decide together):** write RIFT's message-passing layers as matrix multiplies (dense adjacency, at most 256 × 256) and run on Sentis' CPU backend in the demo. This works on every backend, and a later switch to a GPU backend cannot silently give wrong breaks.
 
 ## Environment record (Day 1–2)
 
@@ -305,7 +331,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - Install works on both laptops from the environment file: yes / no
 - Solve time per shape at usable quality: 41–83 s (cage 2,000–5,000, 20 modes, d=3; Day 4)
 - If the solve is around a second, the argument shifts to damaged and procedural shapes: no, the solve is 26–87 s. But the per-impact decision is 0.2–0.4 ms, so RIFT's argument is the per-shape cost only
-- Sentis model A loads: yes / no. Model B loads: yes / no
+- Sentis model A loads: yes (correct on CPU, GPUCompute and GPUPixel). Model B loads: yes, but correct only on CPU; wrong results on both GPU backends (Demo path results, 3 Nov)
 - Does fracture-modes already handle damaged shapes or repeated impacts? No. Secondary fractures were not simulated, and per-piece modes "would exceed realtime constraints" (paper Sec. 6; pages to confirm)
 
 **Decision:** GO / NO-GO
