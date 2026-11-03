@@ -62,6 +62,7 @@ from teacher import (DEFAULT_FM_DIR, build_teacher, decide, hit_distances, load_
                      target_damage_threshold, tet_volumes_and_centroids)
 from sweep_threshold import outcome_stats
 from cell_graph import locate_in_tets, voxelize
+import ui
 
 PRESETS = {"B": {"cage": 5000, "modes": 20, "d": 1},
            "C": {"cage": 5000, "modes": 40, "d": 3}}
@@ -250,19 +251,27 @@ def main():
     setting = f"option {args.preset}: cage{cfg['cage']}_m{cfg['modes']}_d{cfg['d']}"
     rule = (f"target damage {args.target_damage:.0%}" if args.strength == "target-damage"
             else "most outcomes")
-    print(f"Teacher setting: {setting}; strength rule: {rule}", flush=True)
+    title = f"Day 6c: second hit ({setting}; strength rule: {rule})"
+    with ui.Run(title, out, steps=2 + 2 * (1 + args.cases) + 1) as run:
+        experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree)
+
+
+def experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree):
+    """The whole Day 6c run, reported step by step through run (ui.Run)."""
 
     # 1) Intact wall: homework, threshold, voxels.
     v0, f0 = load_shape(args.mesh)
-    T1 = build_teacher(v0, f0, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
-                       args.minratio, args.fm_dir, display_mesh=False)
+    with run.step("Intact wall: teacher homework"):
+        T1 = build_teacher(v0, f0, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
+                           args.minratio, args.fm_dir, display_mesh=False)
     t_intact = sum(T1["timings"].values())
-    thr1, cal_pts, cal_dirs, cal_dists, piece_vol1 = set_strength(T1, v0, f0, args, args.seed)
-    vox, vox_index, spacing = voxelize(v0, f0)
-    lo = v0.min(axis=0)
-    vt1, missed1 = locate_in_tets(vox, T1["nodes"], T1["elements"])
-    print(f"Intact wall: homework {t_intact:.0f} s, threshold {thr1:.3g}, "
-          f"{len(vox)} voxels ({missed1:.2%} not in a tet)", flush=True)
+    with run.step("Intact wall: set strength, find voxels, pick first hits"):
+        thr1, cal_pts, cal_dirs, cal_dists, piece_vol1 = set_strength(T1, v0, f0, args, args.seed)
+        vox, vox_index, spacing = voxelize(v0, f0)
+        lo = v0.min(axis=0)
+        vt1, missed1 = locate_in_tets(vox, T1["nodes"], T1["elements"])
+    run.note(f"Intact wall: homework {t_intact:.0f} s, threshold {thr1:.3g}, "
+             f"{len(vox):,} voxels ({missed1:.2%} not in a tet)")
 
     # 2) First hits that knock out a crater of 2-20% of the wall, spread apart.
     total = piece_vol1.sum()
@@ -281,6 +290,7 @@ def main():
             break
     if not chosen:
         raise SystemExit("No first hit made a 2-20% crater at this threshold.")
+    run.total_steps = 2 + 2 * (1 + len(chosen)) + 1
 
     rows, cases = [], []
     axes2d = np.sort(np.argsort(-(v0.max(axis=0) - v0.min(axis=0)))[:2])
@@ -289,151 +299,158 @@ def main():
     runs = [("control", None, 0.0)] + [(k, i1, share) for k, (i1, share) in enumerate(chosen)]
     for k, i1, crater_share in runs:
         if k == "control":
-            print("Control: intact wall rebuilt through the same pipeline (no crater)", flush=True)
+            label = "Control (intact wall, rebuilt)"
             keep = np.ones(len(vox), dtype=bool)
             crater_tree = None
         else:
-            print(f"Case {k}: first hit {i1} knocks out {crater_share:.1%} of the wall",
-                  flush=True)
+            label = f"Crater {k} ({crater_share:.1%} of the wall)"
             project_impact(T1["fm"], cal_pts[i1], cal_dirs[i1], cfg["d"], thr1)
             frag = voxel_fragments(T1["fm"], vt1)
             keep = frag == np.argmax(np.bincount(frag))
             crater_tree = cKDTree(vox[~keep])
 
         # 3) The (damaged) wall as a new shape: new homework, own threshold.
-        V2, F2 = damaged_mesh(vox_index, keep, lo, spacing, target_faces=args.mesh_faces)
-        igl.write_obj(str(out / f"case_{k}_wall.obj"), V2, F2)
-        t = time.perf_counter()
-        T2 = build_teacher(V2, F2, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
-                           args.minratio, args.fm_dir, display_mesh=False)
-        t_redo = time.perf_counter() - t
-        thr2 = set_strength(T2, V2, F2, args, args.seed + 1)[0]
-        vt2, missed2 = locate_in_tets(vox[keep], T2["nodes"], T2["elements"])
+        with run.step(f"{label}: rebuild the wall and redo the homework"):
+            V2, F2 = damaged_mesh(vox_index, keep, lo, spacing, target_faces=args.mesh_faces)
+            igl.write_obj(str(out / f"case_{k}_wall.obj"), V2, F2)
+            t = time.perf_counter()
+            T2 = build_teacher(V2, F2, cfg["cage"], cfg["d"], cfg["modes"], args.grid_size,
+                               args.minratio, args.fm_dir, display_mesh=False)
+            t_redo = time.perf_counter() - t
+            thr2 = set_strength(T2, V2, F2, args, args.seed + 1)[0]
+            vt2, missed2 = locate_in_tets(vox[keep], T2["nodes"], T2["elements"])
         vt1_keep = vt1[keep]
         index_keep = vox_index[keep]
-        print(f"  rebuilt wall: {len(F2)} triangles, redo homework {t_redo:.0f} s, "
-              f"threshold {thr2:.3g} ({missed2:.2%} voxels not in a tet)", flush=True)
+        run.note(f"Rebuilt wall: {len(F2):,} triangles, redo homework {t_redo:.0f} s, "
+                 f"threshold {thr2:.3g} ({missed2:.2%} voxels not in a tet)")
 
-        # 4) Second hits: reuse vs redo, compared on the wall's remaining voxels.
-        # Random hits land near the crater only about 30% of the time, so draw a large
-        # random pool and take half the hits near the crater and half far from it.
-        seed = args.seed + 10 + (0 if k == "control" else k + 1)
-        pool_pts, pool_dirs = sample_impacts(V2, F2, args.hits * 20, seed)
-        if crater_tree is None:
-            pick_hits = np.arange(args.hits)
-        else:
-            pool_dist = crater_tree.query(pool_pts)[0]
-            near_ids = np.nonzero(pool_dist < NEAR)[0][:args.hits // 2]
-            far_ids = np.nonzero(pool_dist >= NEAR)[0][:args.hits - len(near_ids)]
-            pick_hits = np.r_[near_ids, far_ids]
-        pts2, dirs2 = pool_pts[pick_hits], pool_dirs[pick_hits]
-        examples, case_rows = [], []
-        for j, (pt, dv) in enumerate(zip(pts2, dirs2)):
-            project_impact(T1["fm"], pt, dv, cfg["d"], thr1)
-            reuse = split_disconnected(voxel_fragments(T1["fm"], vt1_keep), index_keep)
-            project_impact(T2["fm"], pt, dv, cfg["d"], thr2)
-            redo = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
-            project_impact(T2["fm"], pt, dv, cfg["d"], thr1)
-            redo_same_thr = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
-            dist = float("nan") if crater_tree is None else float(crater_tree.query(pt)[0])
-            case_rows.append({
-                "case": k, "hit": j, "distance_to_crater": dist,
-                "near": bool(crater_tree is not None and dist < NEAR),
-                "ari_reuse_vs_redo": ari(reuse, redo),
-                "ari_reuse_vs_redo_same_threshold": ari(reuse, redo_same_thr),
-                "detached_iou": iou(detached(reuse), detached(redo)),
-                "fragments_reuse": count_fragments(reuse, MIN_FRAGMENT),
-                "fragments_redo": count_fragments(redo, MIN_FRAGMENT),
-                "detached_share_reuse": float(detached(reuse).mean()),
-                "detached_share_redo": float(detached(redo).mean()),
-            })
-            examples.append((dist, j, pt, reuse, redo))
-        rows += case_rows
-        cases.append({"case": k, "first_hit": None if i1 is None else int(i1),
-                      "crater_share": crater_share, "triangles": int(len(F2)),
-                      "redo_homework_s": t_redo,
-                      "redo_timings_s": {k: float(v) for k, v in T2["timings"].items()},
-                      "threshold_intact": thr1, "threshold_rebuilt": thr2})
+        with run.step(f"{label}: {args.hits} second hits, reuse vs redo"):
+            # 4) Second hits: reuse vs redo, compared on the wall's remaining voxels.
+            # Random hits land near the crater only about 30% of the time, so draw a large
+            # random pool and take half the hits near the crater and half far from it.
+            seed = args.seed + 10 + (0 if k == "control" else k + 1)
+            pool_pts, pool_dirs = sample_impacts(V2, F2, args.hits * 20, seed)
+            if crater_tree is None:
+                pick_hits = np.arange(args.hits)
+            else:
+                pool_dist = crater_tree.query(pool_pts)[0]
+                near_ids = np.nonzero(pool_dist < NEAR)[0][:args.hits // 2]
+                far_ids = np.nonzero(pool_dist >= NEAR)[0][:args.hits - len(near_ids)]
+                pick_hits = np.r_[near_ids, far_ids]
+            pts2, dirs2 = pool_pts[pick_hits], pool_dirs[pick_hits]
+            examples, case_rows = [], []
+            for j, (pt, dv) in run.track(list(enumerate(zip(pts2, dirs2))), "Second hits"):
+                project_impact(T1["fm"], pt, dv, cfg["d"], thr1)
+                reuse = split_disconnected(voxel_fragments(T1["fm"], vt1_keep), index_keep)
+                project_impact(T2["fm"], pt, dv, cfg["d"], thr2)
+                redo = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
+                project_impact(T2["fm"], pt, dv, cfg["d"], thr1)
+                redo_same_thr = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
+                dist = float("nan") if crater_tree is None else float(crater_tree.query(pt)[0])
+                case_rows.append({
+                    "case": k, "hit": j, "distance_to_crater": dist,
+                    "near": bool(crater_tree is not None and dist < NEAR),
+                    "ari_reuse_vs_redo": ari(reuse, redo),
+                    "ari_reuse_vs_redo_same_threshold": ari(reuse, redo_same_thr),
+                    "detached_iou": iou(detached(reuse), detached(redo)),
+                    "fragments_reuse": count_fragments(reuse, MIN_FRAGMENT),
+                    "fragments_redo": count_fragments(redo, MIN_FRAGMENT),
+                    "detached_share_reuse": float(detached(reuse).mean()),
+                    "detached_share_redo": float(detached(redo).mean()),
+                })
+                examples.append((dist, j, pt, reuse, redo))
+            rows += case_rows
+            cases.append({"case": k, "first_hit": None if i1 is None else int(i1),
+                          "crater_share": crater_share, "triangles": int(len(F2)),
+                          "redo_homework_s": t_redo,
+                          "redo_timings_s": {k: float(v) for k, v in T2["timings"].items()},
+                          "threshold_intact": thr1, "threshold_rebuilt": thr2})
 
-        # Picture: two second hits (control: two random ones; craters: nearest and farthest).
-        if k == "control":
-            pick = [examples[0], examples[len(examples) // 2]]
-        else:
-            examples.sort(key=lambda e: e[0])
-            pick = [examples[0], examples[-1]]
-        fig, axs = plt.subplots(2, 2, figsize=(13, 8))
-        xy = vox[keep][:, axes2d]
-        xy_crater = vox[~keep][:, axes2d]
-        show = np.random.default_rng(3).choice(len(xy), size=min(len(xy), 40_000), replace=False)
-        palette = colormaps["tab10"]
-        for r, (dist, j, pt, reuse, redo) in enumerate(pick):
-            for c, (lab, name) in enumerate([(reuse, "REUSE intact homework"),
-                                             (redo, "REDO homework on rebuilt wall")]):
-                ax = axs[r, c]
-                big = np.argmax(np.bincount(lab))
-                order = {f: n for n, f in enumerate(np.unique(lab[lab != big]))}
-                colours = np.array([(0.78, 0.78, 0.78, 1.0) if l == big
-                                    else palette(order[l] % 10) for l in lab[show]])
-                if len(xy_crater):
-                    ax.scatter(*xy_crater.T, s=1, c=[(1.0, 0.85, 0.85, 1.0)], linewidths=0)
-                    ax.plot(*cal_pts[i1][axes2d], marker="X", color="black", markersize=11)
-                ax.scatter(*xy[show].T, s=1.5, c=colours, linewidths=0)
-                ax.plot(*pt[axes2d], marker="*", color="red", markersize=15,
-                        markeredgecolor="black")
-                where = "" if k == "control" else f", {dist:.2f} from crater"
-                ax.set_title(f"{name}\nsecond hit {j}{where}: {count_fragments(lab, MIN_FRAGMENT)} fragments, "
-                             f"ARI {case_rows[j]['ari_reuse_vs_redo']:.2f}", fontsize=9)
-                ax.set_aspect("equal")
-                ax.set_xticks([])
-                ax.set_yticks([])
-        what = ("control: intact wall, rebuilt" if k == "control"
-                else f"case {k}: pink = crater from first hit (black X)")
-        fig.suptitle(f"{setting}, {what}; red star = second hit", fontsize=10)
-        fig.tight_layout()
-        fig.savefig(out / f"case_{k}.png", dpi=110)
-        plt.close(fig)
+            # Picture: two second hits (control: two random ones; craters: nearest and farthest).
+            if k == "control":
+                pick = [examples[0], examples[len(examples) // 2]]
+            else:
+                examples.sort(key=lambda e: e[0])
+                pick = [examples[0], examples[-1]]
+            fig, axs = plt.subplots(2, 2, figsize=(13, 8))
+            xy = vox[keep][:, axes2d]
+            xy_crater = vox[~keep][:, axes2d]
+            show = np.random.default_rng(3).choice(len(xy), size=min(len(xy), 40_000), replace=False)
+            palette = colormaps["tab10"]
+            for r, (dist, j, pt, reuse, redo) in enumerate(pick):
+                for c, (lab, name) in enumerate([(reuse, "REUSE intact homework"),
+                                                 (redo, "REDO homework on rebuilt wall")]):
+                    ax = axs[r, c]
+                    big = np.argmax(np.bincount(lab))
+                    order = {f: n for n, f in enumerate(np.unique(lab[lab != big]))}
+                    colours = np.array([(0.78, 0.78, 0.78, 1.0) if l == big
+                                        else palette(order[l] % 10) for l in lab[show]])
+                    if len(xy_crater):
+                        ax.scatter(*xy_crater.T, s=1, c=[(1.0, 0.85, 0.85, 1.0)], linewidths=0)
+                        ax.plot(*cal_pts[i1][axes2d], marker="X", color="black", markersize=11)
+                    ax.scatter(*xy[show].T, s=1.5, c=colours, linewidths=0)
+                    ax.plot(*pt[axes2d], marker="*", color="red", markersize=15,
+                            markeredgecolor="black")
+                    where = "" if k == "control" else f", {dist:.2f} from crater"
+                    ax.set_title(f"{name}\nsecond hit {j}{where}: {count_fragments(lab, MIN_FRAGMENT)} fragments, "
+                                 f"ARI {case_rows[j]['ari_reuse_vs_redo']:.2f}", fontsize=9)
+                    ax.set_aspect("equal")
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+            what = ("control: intact wall, rebuilt" if k == "control"
+                    else f"case {k}: pink = crater from first hit (black X)")
+            fig.suptitle(f"{setting}, {what}; red star = second hit", fontsize=10)
+            fig.tight_layout()
+            fig.savefig(out / f"case_{k}.png", dpi=110)
+            plt.close(fig)
 
-    with open(out / "per_hit.csv", "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
-        w.writeheader()
-        w.writerows(rows)
+    with run.step("Save results"):
+        with open(out / "per_hit.csv", "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
 
-    def avg(key, subset):
-        vals = [r[key] for r in subset]
-        return float(np.mean(vals)) if vals else float("nan")
+        def avg(key, subset):
+            vals = [r[key] for r in subset]
+            return float(np.mean(vals)) if vals else float("nan")
 
-    groups = {"control": [r for r in rows if r["case"] == "control"],
-              "near": [r for r in rows if r["case"] != "control" and r["near"]],
-              "far": [r for r in rows if r["case"] != "control" and not r["near"]]}
-    summary = {"setting": setting, "strength_rule": args.strength,
-               "target_damage": args.target_damage, "intact_homework_s": t_intact,
-               "threshold_intact": thr1, "cases": cases}
-    for name, subset in groups.items():
-        summary[f"{name}_hits"] = len(subset)
-        for key in ("ari_reuse_vs_redo", "ari_reuse_vs_redo_same_threshold", "detached_iou",
-                    "fragments_reuse", "fragments_redo"):
-            summary[f"{name}_{key}"] = avg(key, subset)
-    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+        groups = {"control": [r for r in rows if r["case"] == "control"],
+                  "near": [r for r in rows if r["case"] != "control" and r["near"]],
+                  "far": [r for r in rows if r["case"] != "control" and not r["near"]]}
+        summary = {"setting": setting, "strength_rule": args.strength,
+                   "target_damage": args.target_damage, "intact_homework_s": t_intact,
+                   "threshold_intact": thr1, "cases": cases}
+        for name, subset in groups.items():
+            summary[f"{name}_hits"] = len(subset)
+            for key in ("ari_reuse_vs_redo", "ari_reuse_vs_redo_same_threshold", "detached_iou",
+                        "fragments_reuse", "fragments_redo"):
+                summary[f"{name}_{key}"] = avg(key, subset)
+        (out / "summary.json").write_text(json.dumps(summary, indent=2))
 
     s = summary
     damaged = [c for c in cases if c["case"] != "control"]
     craters = ", ".join("%.0f%%" % (100 * c["crater_share"]) for c in damaged)
     redo_ctrl = "%.0f" % cases[0]["redo_homework_s"]
     redo_dmg = ", ".join("%.0f" % c["redo_homework_s"] for c in damaged)
-    print(f"\nSaved results in {out}\n\nPaste into docs/kill-test-log.md (Day 6c):\n")
-    print(f"Setting: {setting}; strength rule: {rule}. Intact-wall homework {t_intact:.0f} s "
-          f"(no display mesh). Craters: {craters}.\n")
-    print("| Second hits on | Hits | Redo homework (s) | ARI reuse vs redo | Same threshold "
-          "| Detached IoU | Fragments reuse / redo |")
-    print("|---|---|---|---|---|---|---|")
+    columns = ["Second hits on", "Hits", "Redo homework (s)", "ARI reuse vs redo",
+               "Same threshold", "Detached IoU", "Fragments reuse / redo"]
+    table = []
     for name, label, redo in (("control", "Control: intact wall, rebuilt", redo_ctrl),
                               ("near", f"Damaged wall, near crater (< {NEAR})", redo_dmg),
                               ("far", "Damaged wall, far from crater", redo_dmg)):
-        print(f"| {label} | {s[name + '_hits']} | {redo} | {s[name + '_ari_reuse_vs_redo']:.2f} | "
-              f"{s[name + '_ari_reuse_vs_redo_same_threshold']:.2f} | "
-              f"{s[name + '_detached_iou']:.2f} | "
-              f"{s[name + '_fragments_reuse']:.1f} / {s[name + '_fragments_redo']:.1f} |")
-    print("\nARI: 1.00 = reuse gives exactly the right break; near 0 = unrelated to the right break.")
+        table.append([label, s[name + "_hits"], redo, f"{s[name + '_ari_reuse_vs_redo']:.2f}",
+                      f"{s[name + '_ari_reuse_vs_redo_same_threshold']:.2f}",
+                      f"{s[name + '_detached_iou']:.2f}",
+                      f"{s[name + '_fragments_reuse']:.1f} / {s[name + '_fragments_redo']:.1f}"])
+    intro = (f"Setting: {setting}; strength rule: {rule}. Intact-wall homework {t_intact:.0f} s "
+             f"(no display mesh). Craters: {craters}.")
+    run.note(intro)
+    run.table("Day 6c: reuse vs redo homework (ARI 1.00 = identical breaks)", columns, table)
+    markdown = "\n".join([intro, "", "| " + " | ".join(columns) + " |",
+                          "|" + "---|" * len(columns)]
+                         + ["| " + " | ".join(str(c) for c in r) + " |" for r in table])
+    run.log_markdown(markdown)
+    run.note(f"All results: {out} (also on outputs/dashboard.html)")
 
 
 if __name__ == "__main__":
