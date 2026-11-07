@@ -24,7 +24,7 @@ Decided on: Use WSL
 | 4 | Fri 30 Oct | Look at the Day 3 breaks in Blender. On the 2,000-face wall, sweep the break threshold (and try 20 modes) | Hitting different spots gives different fragments, and they look plausible | [x] | Done 29 Oct (a day early). Swept 8 settings at both cage sizes. 81 different outcomes from 100 hits at the chosen setting. See "Day 4 results". |
 | 5 | Sat 31 Oct | Voronoi-cut the wall into 128 cells; label each cell by fragment; draw the cell graph with breaking links coloured | Graph image saved | [x] | Done 29 Oct. Purity 96.2%, lost volume 0.14%. See "Day 5 results". |
 | 6 | Sun 1 Nov | Read the fracture-modes paper: timing and repeated-impact sections | Threat list written below | [ ] | Pre-read done 31 Oct (`docs/paper-notes-fracture-modes.md`). Team reading of the marked pages still to do. Direction check (6b) done 31 Oct. Second-hit test (6c) done for option B: inconclusive, but found mesh sensitivity and a calibration problem. Mesh check (6d) done: the teacher depends on the triangle layout. Label-only check (6e) done: labels do not need the display mesh (homework 278 → 111 s); found and fixed a repeatability bug in the mode solve (fix verified). 6c re-run with matched strength: no clean evidence for RQ3. |
-| 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [ ] | Draft written 3 Nov (proposed: GO); waiting for team agreement. |
+| 7 | Mon 2 Nov | Go/no-go write-up (half a page) | Decision recorded below | [x] | GO, agreed by the team on 7 Nov. Decisions D1–D4 accepted the same day. |
 
 ### Demo path (Days 1–5, in parallel)
 
@@ -320,6 +320,19 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - **Fix:** `teacher.fix_mode_solver_start()` gives the solver a fixed starting vector, applied inside `build_teacher` without editing fracture-modes' code. Every result before this fix (Days 3–6d) used whatever random start each build got. **Verified 1 Nov:** re-running this check gave bit-for-bit identical builds (modes difference 0.0, 476 and 476 pieces) and identical labels on all 40 hits.
 - **The mesh dependence of Day 6d is not this bug:** two builds with different random starts still gave identical labels on all 40 hits, so the 0.56–0.64 agreement between triangulations comes from the triangles.
 
+## Day 6f: a fairer hit (planned 7 Nov)
+
+**Question:** fracture-modes pushes every tet corner within 0.05 of the hit by the same amount, so a denser mesh near the hit means a stronger hit (Day 6c re-run). Its own code comments write the push weighted by the mass matrix (`piece_impact = wave_piece_lsqr' M d`), but that line is commented out. Does the mass-weighted push make the teacher less dependent on the mesh, and does it give the second-hit test (RQ3) a fair answer?
+
+**Method:**
+
+- `scripts/push_check.py`: three versions of the same wall (original, finer triangles, rounded rebuild), each built once. Both push rules hit each version at the same 40 points, each rule with its own threshold for 5% median damage. Compare each version with the original, and measure how much push each rule delivers at the same spot on each version.
+- `scripts/second_hit.py --push mass`: the Day 6c test again with the mass push, compared with the corners-push re-run of 1 Nov.
+
+**Results:** to fill in.
+
+**What this means:** to fill in.
+
 ## Threats found (Day 6)
 
 - (Found Day 1) After per-shape precomputation, fracture-modes handles each impact in ~1 ms. RIFT must justify itself on the precomputation cost (unseen, procedural and already-broken shapes), not on per-impact speed. Day 3 measures how that cost grows; Day 6 checks whether broken pieces can break again without recomputing their modes.
@@ -345,7 +358,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - Sentis model A loads: yes, correct on CPU, GPUCompute and GPUPixel. Model B loads: yes, but correct only on CPU; wrong results on both GPU backends. Same on both laptops (Demo path results, 3 Nov)
 - Does fracture-modes already handle damaged shapes or repeated impacts? No. Secondary fractures were not simulated, and per-piece modes "would exceed realtime constraints" (paper Sec. 6; pages to confirm)
 
-**Decision:** GO (draft, 3 Nov 2026; to be confirmed by the team)
+**Decision:** GO (agreed by the team on 7 Nov 2026)
 
 **Reason:** every check that could have killed the idea passed.
 
