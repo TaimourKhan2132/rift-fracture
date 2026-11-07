@@ -34,7 +34,10 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 
 **Cloud test, IDs 0–59:** 60 of 60 made on the first draw, none failed. About 2 s per shape, so 2,000 shapes take about 70 minutes plus about 17 minutes of preview pictures. Triangles: median 14,300, range 3,700–44,800 (L-corners largest, round pillars smallest). Worst kept shape: volume 0.981 of the extracted surface, inside test off by 2.7%, smallest angle 21 degrees. The same ID made twice gives a byte-identical file (20 of 20). A draw stopped by the time limit is recorded as failed, and the next shape still works.
 
-**On TKR's laptop:** to fill in (IDs 0–99).
+**On TKR's laptop (Windows), IDs 0–99:** 100 of 100 made on the first draw, none failed. 1.4 s per shape; 3.5 minutes including the pictures. Triangles: median 14,200, range 3,100–46,100.
+
+- Closest to a limit: square pillar #66 (volume 0.977 of the extracted surface, limit 0.975; inside test off by 3.5%, limit 4%) and thin rectangular beams (volume 0.981–0.986). Thin straight shapes lose the most to edge rounding, so expect a few redraws among them in the full run.
+- Same shapes as the cloud test: identical triangles for all 60 shared IDs, and vertex positions equal to within 0.00000000000004 m. The file checksums still differ, because Windows writes different line endings and the last digit can round differently. Compare checksums only between the two Windows laptops.
 
 **Open before bulk generation:**
 
