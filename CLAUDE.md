@@ -12,9 +12,9 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 ## Current phase
 
-**Week-1 kill test, 27 Oct – 2 Nov 2026.** Work only on the items in `docs/kill-test-log.md`.
+**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Now: Day 6f (a fairer hit), the shape generator, then the dataset generator and a pilot run before bulk generation.
 
-Do NOT yet build: the full package layout, training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
+Do NOT yet build: training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
 Plan B (decided): if fracture-modes does not run natively on Windows by the end of Day 3, use WSL for the teacher environment only.
 
@@ -51,17 +51,19 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - **Never copy its code into this repo** (academic, non-commercial licence).
 - The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo. It expires after 365 days.
 
-## Teacher settings (decision D1, under review; see `docs/decisions.md`)
+## Teacher settings (decisions D1–D4, accepted 7 Nov; see `docs/decisions.md`)
 
-- Current choice: cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. About 470 s and 1 GB per shape. The team may switch to option B (20 modes, d=1, about 87 s per shape). Do not start bulk data generation until D1 is settled.
+- Option B (D1): cage 5,000 faces, 20 modes, d=1, cage grid 256, tetgen minratio 1.5, `display_mesh=False`. About 111 s per shape on a realistic 14,000-triangle mesh (Day 6e).
 - 256 Voronoi cells per shape. Labels and fragment metrics are defined at cell resolution.
 - The break threshold is not a constant: calibrate a band per shape. It acts as impact strength.
-- Strength rule (proposed decision D3): set each shape's threshold so the median random hit breaks off a fixed share of its volume (`teacher.target_damage_threshold`, 5% so far). The Day 4 "most different outcomes" rule gave very different strengths on near-identical shapes (Day 6c).
+- Strength rule (D3): set each shape's threshold so the median random hit breaks off a fixed share of its volume (`teacher.target_damage_threshold`). Hit strengths range over 2–12% median broken-off share. The Day 4 "most different outcomes" rule gave very different strengths on near-identical shapes (Day 6c).
 - Build the teacher with `build_teacher(..., display_mesh=False)` when only labels are needed: identical labels, homework 278 → 111 s on a 14,000-triangle wall (Day 6e).
 - Always build the teacher through `teacher.build_teacher`: it fixes the mode solver's starting vector, without which a shape's teacher depends on the shapes built before it in the same process (Day 6e).
 - Known limits: teacher labels depend on the triangle layout (same shape, different triangles: ARI about 0.6; Day 6d), and a hit's strength depends on how many tet corners lie within 0.05 of it (Day 6c). Never compare RIFT to a single teacher run without stating this ceiling.
+- Hit push: `push="corners"` is fracture-modes as its code runs; `push="mass"` weights the push by material, the formula in its own comments (Day 6f, under test). Use corners until Day 6f decides.
 - Always use fracture-modes' default projection. `project_on_modes` shatters the wall far from the hit (Day 6b).
-- The teacher's breaks do not depend on impact direction (Day 6b, paper Sec. 6). Never claim direction-dependent fracture; RIFT uses impact location and strength (proposed decision D2).
+- The teacher's breaks do not depend on impact direction (Day 6b, paper Sec. 6). Never claim direction-dependent fracture; RIFT uses impact location and strength (D2).
+- Network layers (D4): matrix multiplies on a dense adjacency matrix (at most 256 × 256), run on Sentis' CPU backend. Never scatter operations: they are silently wrong on Sentis' GPU backends.
 
 ## Rules
 
@@ -89,6 +91,7 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 - `scripts/direction_check.py`: Day 6b check of whether impact direction changes the break, for both fracture-modes projections.
 - `scripts/second_hit.py`: Day 6c test of whether a second hit on a damaged wall can reuse the intact wall's homework or needs it redone (includes a no-crater control).
 - `scripts/repeat_check.py`: Day 6d check of how much the teacher's break depends on the mesh (same file twice, finer triangles, rounded rebuild), and of a target-damage threshold rule.
+- `scripts/push_check.py`: Day 6f comparison of fracture-modes' push (every corner equal) with a mass-weighted push, on three versions of the same wall.
 - `scripts/label_only_check.py`: Day 6e check that labels are identical when the teacher skips the display-mesh step (`build_teacher(..., display_mesh=False)`), and how much time that saves.
 - `scripts/teacher.py`: shared helpers for the scripts above (not run directly).
 - `scripts/ui.py`: readable terminal output for every long script: steps with timers, progress bars with time left, aligned tables, and the log table saved as `<out_dir>/log_table.md` (not run directly).
