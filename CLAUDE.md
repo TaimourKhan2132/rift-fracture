@@ -12,7 +12,7 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 ## Current phase
 
-**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). The 20-shape pilot is done (`docs/data-log.md`): strength fails on shapes that break in big chunks (three pillars, one arch). Now: the strength audit (`scripts/strength_audit.py`, median vs mean strength rule), then bulk generation.
+**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). The 20-shape pilot and the strength audit are done (`docs/data-log.md`): the median strength rule fails on shapes that break in big chunks, and the mean rule fixes it (D3 amendment proposed 8 Nov). Two shapes at once give 1.46 times as many shapes per hour. Now: accept the D3 amendment and D5, make dataset v2 with the mean rule, then bulk generation (two shapes at once per laptop).
 
 Do NOT yet build: training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
