@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from scipy.sparse import eye, kron
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_FM_DIR = REPO_ROOT / "third_party" / "fracture-modes"
@@ -200,10 +201,44 @@ def decide(fm, distances, threshold):
     return connected_components(adj, directed=False)
 
 
-def hit_distances(fm, point, direction3, d):
-    """Piece-pair distances for one hit (they do not depend on the threshold)."""
-    project_impact(fm, point, direction3, d, 1.0)
+PUSH_RULES = ("corners", "mass")
+
+
+def hit_distances(fm, point, direction3, d, push="corners"):
+    """Piece-pair distances for one hit (they do not depend on the threshold).
+
+    push="corners": fracture-modes as its code runs. Every tet corner within 0.05 of
+        the hit gets the same push, so a denser mesh near the hit means a stronger
+        hit (Day 6c: 1.3-1.9 times more corners around a rebuilt crater rim).
+    push="mass": each corner's push is weighted by the material around it (the mass
+        matrix M), so the total push depends on how much material is near the hit,
+        not on how many corners happen to be there. This is the formula written in
+        fracture-modes' own comments, piece_impact = wave_piece_lsqr' M d, whose line
+        is commented out in their code (Day 6f). Thresholds are on a different scale,
+        which the target-damage rule (D3) absorbs.
+    """
+    if push not in PUSH_RULES:
+        raise ValueError(f"push must be one of {PUSH_RULES}, not {push!r}")
+    project_impact(fm, point, direction3, d, 1.0)  # builds fm.impact, the per-corner push
+    if push == "mass":
+        dim = fm.modes.shape[0] // fm.elements.shape[0]
+        fm.projected_impact = fm.wave_piece_lsqr.T @ (kron(eye(dim), fm.M) @ fm.impact)
     return piece_distances(fm)
+
+
+def tet_pieces(fm):
+    """The piece each tet belongs to."""
+    return np.asarray(fm.piece_to_tet_matrix.argmax(axis=1)).ravel()
+
+
+def hit_tet_labels(fm, point, direction3, d, threshold, push="corners", pieces=None):
+    """Fragment of every tet after one hit, by our break rule (same rule as fracture-modes).
+
+    For push="corners" this matches fracture-modes' own tet_labels_after_impact (checked
+    in Days 4, 6d and 6e); for push="mass" it is the only way to get labels.
+    """
+    _, piece_lab = decide(fm, hit_distances(fm, point, direction3, d, push), threshold)
+    return piece_lab[tet_pieces(fm) if pieces is None else pieces]
 
 
 def piece_volumes(T):
