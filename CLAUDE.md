@@ -12,7 +12,7 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 ## Current phase
 
-**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Now: Day 6f (a fairer hit), the shape generator, then the dataset generator and a pilot run before bulk generation.
+**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed) and the shape generator is built (`scripts/make_shapes.py`, v1). Now: the dataset generator and a pilot run before bulk generation.
 
 Do NOT yet build: training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
@@ -71,7 +71,8 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - Every generated shape gets an integer ID and a random seed. Every output file is named by its ID.
 - Generation scripts save each shape's output as soon as it finishes and skip IDs already done, so a crash costs one shape.
 - Scripts that run work in parallel must use the `if __name__ == "__main__":` guard (Windows starts new processes from scratch).
-- Record every timing and measurement in `docs/kill-test-log.md`.
+- Record every timing and measurement: week 1 in `docs/kill-test-log.md`, phase 1 onwards in `docs/data-log.md`.
+- Shapes come only from `scripts/make_shapes.py`. Any change that alters a shape must bump its `GENERATOR_VERSION`, so old and new shapes never mix.
 - Ask before installing new packages or changing an environment file. Pin versions once something works.
 - Keep changes small and comment anything non-obvious. The team must be able to explain every line in the viva.
 - In writing, say "matches a physics-based reference", never "real fracture".
@@ -85,6 +86,7 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 
 - `scripts/check_env.py`: checks the environment can run fracture-modes (must pass 20/20).
 - `scripts/make_wall.py`: the Day 3 test shape (wall with a window).
+- `scripts/make_shapes.py`: the RIFT-Arch base shapes (walls, L-corners, arches, slabs, beams, square and round pillars). One OBJ per ID in `data/rift-arch/shapes/`, one line per ID in `data/rift-arch/shapes.jsonl`, previews in `outputs/shapes/`. The ID alone decides the shape; IDs already made are skipped.
 - `scripts/time_fracture.py`: Day 3 timing across cage sizes and mode dimensions.
 - `scripts/sweep_threshold.py`: Day 4 break-threshold sweep; writes `outputs/day4/chosen.json`.
 - `scripts/cell_graph.py`: Day 5 Voronoi cells, links and break labels from teacher results.
