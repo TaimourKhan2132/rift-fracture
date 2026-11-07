@@ -2,7 +2,7 @@
 
 Decisions that shape the dataset or the model, with the evidence behind them. Newest first.
 
-## D4: Graph layers are matrix multiplies, run on Sentis' CPU backend (3 Nov 2026, proposed)
+## D4: Graph layers are matrix multiplies, run on Sentis' CPU backend (3 Nov 2026, accepted 7 Nov)
 
 **Proposal:** write RIFT's message-passing layers as matrix multiplies over a dense adjacency matrix (at most 256 × 256), never as scatter operations, and run the network on Sentis' CPU backend in the demo.
 
@@ -10,19 +10,19 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Open:** timing at the real size (256 cells, 3–4 layers) once a model exists.
 
-**Status:** waiting for the team's agreement.
+**Status:** accepted by the team on 7 Nov 2026.
 
-## D3: Strength means the same broken-off share on every shape (1 Nov 2026, proposed)
+## D3: Strength means the same broken-off share on every shape (1 Nov 2026, accepted 7 Nov)
 
 **Proposal:** set each shape's break threshold so that the median random hit breaks off a fixed share of the shape's volume (5% so far; a band of shares for weak to strong hits). This replaces Day 4's rule (the threshold giving the most different outcomes).
 
 **Why:** Day 4's rule gave thresholds from 64 to 210 on near-identical walls (Day 6c): on one wall a hit broke off a quarter of it, on another 6%. Strength would mean different things on different shapes, and the network could not learn it as an input. The target-damage rule hit 4.9–5.0% on four versions of the same wall (Day 6d) and made the second-hit comparison fair (Day 6c re-run).
 
-**Open:** which shares to use for weak, medium and strong hits.
+**Range (7 Nov):** each hit's strength is a median broken-off share between 2% and 12%. To be checked on pictures in the dataset pilot before bulk generation.
 
-**Status:** waiting for the team's agreement.
+**Status:** accepted by the team on 7 Nov 2026.
 
-## D2: RIFT claims impact location and strength, not direction (31 Oct 2026, proposed)
+## D2: RIFT claims impact location and strength, not direction (31 Oct 2026, accepted 7 Nov)
 
 **Proposal:** RIFT predicts how a shape breaks from where it is hit and how hard. It does not claim that the hit direction changes which pieces break. In the game demo, direction only pushes the debris.
 
@@ -32,13 +32,15 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Still different from the closest work:** Neural Clustering ignores the impact entirely; RIFT uses its location and strength.
 
-**Status:** waiting for the team's agreement. It changes the README pitch and the proposal wording.
+**Status:** accepted by the team on 7 Nov 2026. README updated; the proposal wording still to update.
 
-## D1: Teacher setting is option C (31 Oct 2026, under review)
+## D1: Teacher setting is option B (decided 7 Nov 2026; option C chosen first, on 31 Oct)
 
-**Decision:** generate the dataset with cage 5,000 faces, 40 modes, d=3, cage grid 256, tetgen minratio 1.5. Cut shapes into 256 Voronoi cells. Calibrate a threshold band per shape instead of using one fixed value.
+**Decision (7 Nov):** generate the dataset with option B: cage 5,000 faces, 20 modes, d=1, cage grid 256, tetgen minratio 1.5, teacher built with `display_mesh=False`. Cut shapes into 256 Voronoi cells. Set each shape's threshold by the strength rule (D3).
 
-**Why:** crater-style breaks that look like game impact damage: 27 fragments per hit on average, close to the hit (locality 0.19), 100 different outcomes from 100 hits. Chosen by the team after comparing options A, B and C (kill-test log, Day 4b and 5b), partly because C was expected to respond to impact direction.
+**Why B:** about 111 s per realistic shape against about 470 s for C (4–5 times cheaper), and cleaner labels at 256 cells (purity 97.1% vs 94.6%, lost volume 0.47% vs 0.76%). C's extra crater detail mostly disappears at cell resolution (24.4 teacher fragments become 14.5 cell fragments) and sits inside the teacher's own mesh noise (ARI about 0.6, Day 6d). C was first chosen partly because it was expected to respond to impact direction; Day 6b showed it does not.
+
+**First choice, 31 Oct (option C), kept for the record:** crater-style breaks that look like game impact damage: 27 fragments per hit on average, close to the hit (locality 0.19), 100 different outcomes from 100 hits. Chosen by the team after comparing options A, B and C (kill-test log, Day 4b and 5b), partly because C was expected to respond to impact direction.
 
 **Cost:** about 470 s per shape and 1.0 GB peak memory. 300 shapes is about 20 CPU-hours per laptop.
 
@@ -56,4 +58,4 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 | Shapes per laptop-night (about 10 hours) | about 400 | about 75 |
 | 256 cells: purity / lost volume | 97.1% / 0.47% | 94.6% / 0.76% |
 
-**Status:** under review. The team decides between keeping C and switching to B.
+**Status:** decided by the team on 7 Nov 2026: option B.
