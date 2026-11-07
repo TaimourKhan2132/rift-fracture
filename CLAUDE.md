@@ -12,7 +12,7 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 ## Current phase
 
-**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). Now: the 20-shape pilot (`make_dataset.py --ids 0-19`), then bulk generation.
+**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). The 20-shape pilot is done (`docs/data-log.md`): strength fails on shapes that break in big chunks (three pillars, one arch). Now: the strength audit (`scripts/strength_audit.py`, median vs mean strength rule), then bulk generation.
 
 Do NOT yet build: training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
@@ -89,6 +89,7 @@ Run from the repo root inside `rift-teacher`. Outputs go to `outputs/` (gitignor
 - `scripts/make_wall.py`: the Day 3 test shape (wall with a window).
 - `scripts/make_shapes.py`: the RIFT-Arch base shapes (walls, L-corners, arches, slabs, beams, square and round pillars). One OBJ per ID in `data/rift-arch/shapes/`, one line per ID in `data/rift-arch/shapes.jsonl`, previews in `outputs/shapes/`. The ID alone decides the shape; IDs already made are skipped.
 - `scripts/make_dataset.py`: the RIFT-Arch training samples. For each shape: teacher homework, strength calibration, 50 hits labelled at 6 strengths on 256 cells. One `.npz` and one `.json` per ID in `data/rift-arch/samples/`, pictures in `outputs/dataset/`. Each shape runs in its own process with a time limit; IDs already done are skipped; `--every 2 --offset 0|1` splits IDs between the laptops.
+- `scripts/strength_audit.py`: dataset pilot follow-up. Rebuilds the teacher for chosen shapes exactly as `make_dataset.py` does and compares the median and mean strength rules on the same hits; also measures false breaks (cell labels showing part of the main body as broken off).
 - `scripts/time_fracture.py`: Day 3 timing across cage sizes and mode dimensions.
 - `scripts/sweep_threshold.py`: Day 4 break-threshold sweep; writes `outputs/day4/chosen.json`.
 - `scripts/cell_graph.py`: Day 5 Voronoi cells, links and break labels from teacher results.
