@@ -48,6 +48,7 @@ KNOWN = {
     "day6c_B_target_mass": ("Day 6c: second hit (matched strength, mass push)", "Reuse vs redo homework on a damaged wall, with the mass-weighted push of Day 6f."),
     "day6f_B": ("Day 6f: corners push vs mass push", "Does pushing by material instead of by mesh corner make the teacher less dependent on the triangles?"),
     "day6e_B": ("Day 6e: labels without the display mesh", "Same labels without the slow display-mesh step? Plus the repeatability check."),
+    "shapes": ("Shapes: the RIFT-Arch generator", "The dataset's base shapes: the first four of every family. Every shape is in outputs/shapes/sheets/, 20 per picture."),
     "sentis_test": ("Sentis test networks", "The two small networks for the Unity test (dense vs scatter graph layer)."),
 }
 
