@@ -41,7 +41,7 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 
 **Open before bulk generation:**
 
-- Homework time against triangle count. Walls and L-corners reach 20,000–45,000 triangles, against 14,000–16,000 in the Day 6 timings. If homework grows a lot with triangles, raise the edge to 0.02: about half the triangles, but the thinnest part becomes 0.06 of the longest side. Measured in the dataset pilot.
+- Homework time against triangle count. Walls and L-corners reach 20,000–45,000 triangles, against 14,000–16,000 in the Day 6 timings. If homework grows a lot with triangles, raise the edge to 0.02: about half the triangles, but the thinnest part becomes 0.06 of the longest side. Answered by the dataset pilot: it does not, so the edge stays 0.015.
 - Which families are held out for testing (the proposal splits by family, for example all arches). To decide before training.
 - Shapes are axis-aligned with y up. The teacher sees one orientation per shape, so rotations belong in training-time augmentation, not in the dataset.
 
@@ -72,4 +72,18 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 - With so few pieces (15–42), some strength levels shared a threshold. Option B's few hundred pieces should separate them; the pilot checks this.
 - Also checked: a run restarts where it stopped, two shapes run at once, a shape over its time limit is stopped and recorded, and a solver error inside a helper is recorded with its traceback.
 
-**Pilot on TKR's laptop (IDs 0–19, option B):** to fill in. To check: homework time against triangle count, whether the six strengths give different breaks (broken off at 2 / 6 / 12%), variety (distinct outcomes at 6%), purity, and the pictures.
+**Pilot on TKR's laptop (Windows), IDs 0–19, option B, median strength rule:** 20 of 20 made, none failed, 42 minutes, one shape at a time.
+
+- Time: median 122 s per shape (102–158 s). Finding modes takes 61–104 s and the cage 12–70 s; everything after the homework (cells, calibration, labels, picture) 12–19 s. Modes time follows the number of tets, not triangles: round pillars have the fewest triangles but the most tets (about 14,600) and are the slowest. Cage time grows with triangles (L-corners: 57–70 s at 22,000–27,000). Total time hardly follows triangles, so a 0.02 edge would save at most about an eighth (half the cage time): the edge stays 0.015. At this pace 2,000 shapes take about 68 hours on one laptop.
+- Labels: purity 96.4–99.4% per shape (worst single hit 89%), lost volume under 1.5%. Debris smaller than a cell disappears: at 12% the teacher makes 10–50 fragments per hit on walls and slabs, the cells 7–18. At 2%, many hits break off only such debris, so the cells' median broken-off share falls below the target (wall #16: 0.1%).
+- Strength works on 16 of 20 shapes (all walls, slabs, L-corners and beams, two of three arches, one square pillar): the calibration median is within 0.6 points of every target, the labelled hits' median broken-off share rises at every step, and 40–50 of the 50 hits give different outcomes at 6%.
+- Strength fails on 4 shapes that break in big chunks: three of four pillars and arch #14. Damage there comes in jumps (a crack through a pillar's shaft takes everything above it), and the median hit sits on one:
+  - #14 (segmental arch): the 8% and 10% levels get the same threshold; the two pictured hits break identically at 2, 6 and 12%. 24–25 different outcomes at 2–10%.
+  - #9 (plain round pillar): the same threshold at 8% and 10%; the cells' median broken-off share is 4.8% at 8, 10 and 12%.
+  - #18 (round pillar with capital): 11.8–12.0% at every level from 6% up.
+  - #6 (square pillar with capital): the calibration median is close to target, but the labelled hits' median is 18.9% at 8% and 34.7% at 10% and 12%: a hit on the shaft takes the whole capital off. With two clusters of outcomes, the 100 calibration hits and the 50 labelled hits can land on different sides of the jump.
+
+  D3 promises the same broken-off share on every shape, and D3's range note asked the pilot to check it. It does not hold for chunky shapes, a fifth of the pilot. The cloud test's warning about shared thresholds stands: a few hundred pieces is not always enough.
+- Rebuilt 76–99%: in up to a quarter of hits (L-corners most), a teacher fragment comes out as two or more groups of cells. Not yet known whether that is debris split in two (harmless) or part of the main body shown as broken off (a label error).
+
+**Before bulk generation:** `scripts/strength_audit.py` reruns shapes 0, 1, 3, 6, 9, 10, 14, 16 and 18 and sets the thresholds two ways on the same hits: the median rule (D3 now) and a mean rule (the average calibration hit breaks off the target share). The mean moves in many small steps, one per hit crossing a jump, so it is much less likely to skip a level. The audit also measures false breaks for the rebuilt question. If the mean rule fixes the chunky shapes without hurting the rest, D3 changes and the dataset becomes v2.
