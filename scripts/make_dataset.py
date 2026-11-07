@@ -40,6 +40,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -54,7 +55,8 @@ DATASET_VERSION = 1   # bump whenever a change would alter any sample
 DATA_SEED = 2027
 TEACHER = {"cage": 5000, "modes": 20, "d": 1, "grid_size": 256, "minratio": 1.5}  # D1, option B
 PUSH = "mass"         # D5 (proposed 7 Nov): weight the hit by material, not by mesh corner
-STRENGTHS = (0.02, 0.04, 0.06, 0.08, 0.10, 0.12)  # D3: median share broken off
+STRENGTHS = (0.02, 0.04, 0.06, 0.08, 0.10, 0.12)  # D3: share broken off
+STRENGTH_STAT = "median"  # D3: the median calibration hit breaks off that share
 HITS = 50
 CALIBRATION_HITS = 100
 CELLS = 256
@@ -193,6 +195,12 @@ def label_hit(fm, distances, threshold, voxel_piece, cell, links, cell_vol):
     frag_vox = np.bincount(frag, minlength=n_frag)
     owned = np.zeros(n_frag, dtype=bool)
     owned[majority] = True
+    # A teacher fragment the cells cannot hold together comes out as several cell groups
+    # ("rebuilt" is False). It matters most for the teacher's main body: its cut-off
+    # groups look like pieces that break off when they do not ("false break").
+    group_vol = np.bincount(group, weights=cell_vol)
+    of_main = np.unique(group[majority == frag_vox.argmax()])
+    false_break = (group_vol[of_main].sum() - group_vol[of_main].max()) / cell_vol.sum() if len(of_main) else 0.0
     return {
         "cell_fragment": group.astype(np.int16), "link_broken": broken,
         "teacher_fragments": int((frag_vox > 0).sum()),
@@ -202,6 +210,7 @@ def label_hit(fm, distances, threshold, voxel_piece, cell, links, cell_vol):
         "purity": float(table.max(axis=1).sum() / len(frag)),
         "lost_volume": float(frag_vox[(frag_vox > 0) & ~owned].sum() / len(frag)),
         "rebuilt": bool(n_groups == len(np.unique(majority))),
+        "false_break": float(false_break),
     }
 
 
@@ -212,8 +221,8 @@ def settings(opts):
     """Everything that decides a sample's content; a change means remaking samples."""
     return {"dataset_version": DATASET_VERSION, "data_seed": DATA_SEED,
             "teacher": {**TEACHER, "cage": opts["cage"], "modes": opts["modes"]},
-            "push": opts["push"], "strengths": list(STRENGTHS), "hits": HITS,
-            "calibration_hits": CALIBRATION_HITS, "cells": CELLS, "lloyd_rounds": LLOYD_ROUNDS,
+            "push": opts["push"], "strengths": list(STRENGTHS), "strength_stat": STRENGTH_STAT,
+            "hits": HITS, "calibration_hits": CALIBRATION_HITS, "cells": CELLS, "lloyd_rounds": LLOYD_ROUNDS,
             "voxel": VOXEL, "max_voxels": MAX_VOXELS}
 
 
@@ -221,9 +230,10 @@ def sub_seed(shape_id, part):
     return int(np.random.SeedSequence([DATA_SEED, shape_id, part]).generate_state(1)[0])
 
 
-def make_sample(shape_id, opts):
-    """Teacher, cells, calibration and labels for one shape. Writes its files; returns its record."""
-    t_start = time.time()
+def prepare(shape_id, opts):
+    """Everything a sample needs before thresholds are chosen: teacher homework, cells,
+    and the push of every calibration and labelled hit (pushes do not depend on the
+    threshold). strength_audit.py uses this too, so it sees exactly the same shape."""
     data_dir = Path(opts["data_dir"])
     shape = opts["shape"]
     times = {}
@@ -260,24 +270,51 @@ def make_sample(shape_id, opts):
     push = opts["push"]
     cal_pts, cal_dirs = sample_impacts(v, f, CALIBRATION_HITS, sub_seed(shape_id, 2))
     cal_d = [hit_distances(fm, p, d, TEACHER["d"], push) for p, d in zip(cal_pts, cal_dirs)]
-    piece_vol = piece_volumes(T)
-    thresholds, achieved = [], []
-    for s in STRENGTHS:
-        thr, med = target_damage_threshold(fm, cal_d, piece_vol, s)
-        thresholds.append(thr)
-        achieved.append(med)
+    hit_pts, hit_dirs = sample_impacts(v, f, HITS, sub_seed(shape_id, 1))
+    hit_d = [hit_distances(fm, p, d, TEACHER["d"], push) for p, d in zip(hit_pts, hit_dirs)]
+    times["pushes_s"] = round(time.time() - t, 2)
+
+    return SimpleNamespace(
+        shape=shape, T=T, fm=fm, f=f, offset=offset, scale=scale, times=times,
+        vox=vox, vox_index=vox_index, h=h, grid_lo=grid_lo, seeds=seeds, cell=cell,
+        moved=moved, n_cells=n_cells, links=links, link_area=link_area, cell_vol=cell_vol,
+        centroid=centroid, missed=missed, voxel_piece=voxel_piece, piece_vol=piece_volumes(T),
+        cal_d=cal_d, hit_pts=hit_pts, hit_dirs=hit_dirs, hit_d=hit_d)
+
+
+def calibrate(fm, cal_d, piece_vol, stat=STRENGTH_STAT):
+    """One threshold per strength level (D3), from the calibration hits.
+    Returns (thresholds, the median or mean damage each one gives)."""
+    found = [target_damage_threshold(fm, cal_d, piece_vol, s, stat) for s in STRENGTHS]
+    return [thr for thr, _ in found], [got for _, got in found]
+
+
+def label_all(s, thresholds):
+    """label_hit for every labelled hit at every threshold: a list of rows, one per hit."""
+    return [[label_hit(s.fm, d, thr, s.voxel_piece, s.cell, s.links, s.cell_vol) for thr in thresholds]
+            for d in s.hit_d]
+
+
+def make_sample(shape_id, opts):
+    """Teacher, cells, calibration and labels for one shape. Writes its files; returns its record."""
+    t_start = time.time()
+    data_dir = Path(opts["data_dir"])
+    s = prepare(shape_id, opts)
+    shape, fm, times = s.shape, s.fm, s.times
+    seeds, cell, links, cell_vol, hit_pts, hit_dirs = s.seeds, s.cell, s.links, s.cell_vol, s.hit_pts, s.hit_dirs
+
+    t = time.time()
+    thresholds, achieved = calibrate(fm, s.cal_d, s.piece_vol)
     times["calibration_s"] = round(time.time() - t, 2)
 
     t = time.time()
-    hit_pts, hit_dirs = sample_impacts(v, f, HITS, sub_seed(shape_id, 1))
-    res = [[label_hit(fm, hit_distances(fm, p, d, TEACHER["d"], push), thr, voxel_piece, cell,
-                      links, cell_vol) for thr in thresholds]
-           for p, d in zip(hit_pts, hit_dirs)]
+    res = label_all(s, thresholds)
     times["labels_s"] = round(time.time() - t, 2)
 
     grid = lambda key, dtype: np.array([[r[key] for r in row] for row in res], dtype=dtype)
     stats = {k: grid(k, float) for k in ("teacher_fragments", "cell_fragments", "broken_off_teacher",
-                                         "broken_off_cells", "purity", "lost_volume", "rebuilt")}
+                                         "broken_off_cells", "purity", "lost_volume", "rebuilt",
+                                         "false_break")}
     cell_fragment = np.stack([np.stack([r["cell_fragment"] for r in row]) for row in res])
     link_broken = np.stack([np.stack([r["link_broken"] for r in row]) for row in res])
 
@@ -286,9 +323,9 @@ def make_sample(shape_id, opts):
     tmp = samples / f"{shape_id:05d}.tmp.npz"
     np.savez_compressed(
         tmp,
-        cell_seed=seeds.astype(np.float32), cell_centroid=centroid.astype(np.float32),
+        cell_seed=seeds.astype(np.float32), cell_centroid=s.centroid.astype(np.float32),
         cell_volume=cell_vol.astype(np.float32), links=links.astype(np.int16),
-        link_area=link_area.astype(np.float32),
+        link_area=s.link_area.astype(np.float32),
         hit_point=hit_pts.astype(np.float32), hit_normal=(-hit_dirs).astype(np.float32),
         strength=np.array(STRENGTHS, dtype=np.float32), threshold=np.array(thresholds),
         cell_fragment=cell_fragment, link_broken=link_broken,
@@ -296,17 +333,18 @@ def make_sample(shape_id, opts):
         cell_fragments=stats["cell_fragments"].astype(np.int16),
         broken_off=stats["broken_off_cells"].astype(np.float32),
         purity=stats["purity"].astype(np.float32),
-        voxel_spacing=np.float64(h), voxel_origin=grid_lo, cell_grid=cell_grid(vox_index, cell),
-        to_metres_offset=offset, to_metres_scale=np.float64(scale),
+        voxel_spacing=np.float64(s.h), voxel_origin=s.grid_lo, cell_grid=cell_grid(s.vox_index, cell),
+        to_metres_offset=s.offset, to_metres_scale=np.float64(s.scale),
         meta=json.dumps({"id": shape_id, "family": shape["family"], **settings(opts)}))
     tmp.replace(path)
 
     per_level = []
-    for j, s in enumerate(STRENGTHS):
+    for j, strength in enumerate(STRENGTHS):
         outcomes = {np.packbits(link_broken[i, j]).tobytes() for i in range(HITS)}
         per_level.append({
-            "strength": s, "threshold": thresholds[j], "calibration_median": achieved[j],
+            "strength": strength, "threshold": thresholds[j], "calibration_damage": achieved[j],
             "broken_off_median": float(np.median(stats["broken_off_cells"][:, j])),
+            "broken_off_mean": float(stats["broken_off_cells"][:, j].mean()),
             "cell_fragments_mean": float(stats["cell_fragments"][:, j].mean()),
             "teacher_fragments_mean": float(stats["teacher_fragments"][:, j].mean()),
             "distinct_outcomes": len(outcomes),
@@ -315,13 +353,15 @@ def make_sample(shape_id, opts):
         "id": shape_id, "family": shape["family"], "describe": shape["describe"],
         "status": "ok", **settings(opts), "shape_md5": shape.get("md5"),
         "shape_generator_version": shape.get("generator_version"),
-        "triangles": int(len(f)), "tets": int(len(T["elements"])),
-        "pieces": int(fm.precomputed_num_pieces), "voxels": int(len(vox)), "voxel_used": h,
-        "cells": n_cells, "links": int(len(links)), "voxels_moved_to_join_cells": moved,
-        "voxels_not_in_a_tet": missed, "levels": per_level,
+        "triangles": int(len(s.f)), "tets": int(len(s.T["elements"])),
+        "pieces": int(fm.precomputed_num_pieces), "voxels": int(len(s.vox)), "voxel_used": s.h,
+        "cells": s.n_cells, "links": int(len(links)), "voxels_moved_to_join_cells": s.moved,
+        "voxels_not_in_a_tet": s.missed, "levels": per_level,
         "purity_mean": float(stats["purity"].mean()), "purity_min": float(stats["purity"].min()),
         "lost_volume_mean": float(stats["lost_volume"].mean()),
         "rebuilt_share": float(stats["rebuilt"].mean()),
+        "false_break_mean": float(stats["false_break"].mean()),
+        "false_break_max": float(stats["false_break"].max()),
         "timings": times, "seconds": round(time.time() - t_start, 1),
         "npz_md5": hashlib.md5(path.read_bytes()).hexdigest()}
 
@@ -329,7 +369,7 @@ def make_sample(shape_id, opts):
         t = time.time()
         try:
             draw_sample(Path(opts["out_dir"]) / "pictures" / f"{shape_id:05d}.png", record,
-                        vox, cell, cell_fragment, hit_pts)
+                        s.vox, cell, cell_fragment, hit_pts)
         except Exception as err:  # a picture must never cost the sample
             record["picture_error"] = f"{type(err).__name__}: {err}"
         times["picture_s"] = round(time.time() - t, 2)
