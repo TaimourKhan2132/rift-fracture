@@ -3,7 +3,7 @@
 Final Year Project, BS Data Science, University of Management and Technology (UMT), Lahore.
 Supervisor: Daniyal Adeeb.
 
-RIFT decides, at the moment of impact, how a game object breaks. A graph neural network reads a pre-cut object (Voronoi cells) plus the hit point and direction, then predicts for each link between neighbouring cells whether it holds or breaks. Cells still linked form one fragment.
+RIFT decides, at the moment of impact, how a game object breaks. A graph neural network reads a pre-cut object (Voronoi cells) plus where it is hit and how hard, then predicts for each link between neighbouring cells whether it holds or breaks. Cells still linked form one fragment.
 
 The goal: breaks close to a physics-based reference, at roughly the cost of today's pre-broken tricks, on shapes the game has never seen.
 
