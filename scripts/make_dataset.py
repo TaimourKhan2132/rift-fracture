@@ -373,6 +373,7 @@ def make_sample(shape_id, opts):
         except Exception as err:  # a picture must never cost the sample
             record["picture_error"] = f"{type(err).__name__}: {err}"
         times["picture_s"] = round(time.time() - t, 2)
+    record["peak_memory_gb"] = peak_memory_gb()
     return record
 
 
@@ -382,6 +383,38 @@ def cell_grid(index, cell):
     grid = -np.ones(index.max(axis=0) + 1, dtype=np.int16)
     grid[tuple(index.T)] = cell
     return grid
+
+
+def peak_memory_gb():
+    """Most memory this process has held so far, in GB (None if it cannot be read).
+
+    Every shape runs in its own helper process, so this is that shape's peak; it decides
+    how many shapes a laptop can run at once. With --workers 0 it covers the whole run.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class Counters(ctypes.Structure):  # PROCESS_MEMORY_COUNTERS (psapi.h)
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                    (name, ctypes.c_size_t) for name in (
+                        "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                        "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                        "PagefileUsage", "PeakPagefileUsage")]
+
+            this = ctypes.windll.kernel32.GetCurrentProcess
+            this.restype = wintypes.HANDLE
+            read = ctypes.windll.psapi.GetProcessMemoryInfo
+            read.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+            read.restype = wintypes.BOOL
+            c = Counters()
+            c.cb = ctypes.sizeof(Counters)
+            return round(c.PeakWorkingSetSize / 1e9, 2) if read(this(), ctypes.byref(c), c.cb) else None
+        import resource
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)  # Linux: kB
+    except Exception:  # a memory reading must never cost the sample
+        return None
 
 
 def load_shape_metres(path):
@@ -559,6 +592,7 @@ def generate(run, args, ids, opts):
         run.say("[yellow]Teacher setting differs from D1 (option B): testing only.[/]",
                 "Teacher setting differs from D1 (option B): testing only.")
 
+    started = time.time()
     with run.step(f"Make {len(todo)} samples"):
         for shape_id, why in run.track(run_helpers(run, args, opts, shapes, todo), "shapes",
                                        total=len(todo)):
@@ -571,16 +605,19 @@ def generate(run, args, ids, opts):
                 pic = args.out_dir / "pictures" / f"{shape_id:05d}.png"
                 if pic.exists():
                     (args.out_dir / "latest.png").write_bytes(pic.read_bytes())
-                run.note(f"#{shape_id:05d} {record['family']}: {record['seconds']:.0f} s, "
+                memory = f", peak {record['peak_memory_gb']:.1f} GB" if record.get("peak_memory_gb") else ""
+                run.note(f"#{shape_id:05d} {record['family']}: {record['seconds']:.0f} s{memory}, "
                          f"{record['pieces']} pieces, 6% strength gives "
                          f"{record['levels'][2]['distinct_outcomes']} different outcomes from {HITS} hits")
             else:
                 run.say(f"[red]#{shape_id:05d} failed[/]: {record.get('error')}",
                         f"#{shape_id:05d} failed: {record.get('error')}")
+    # Real time per shape, including waiting: what decides how long a bulk run takes.
+    wall_pace = (time.time() - started) / len(todo) if todo else None
 
     with run.step("Summarise"):
         records = [r for r in (read_record(args.data_dir, i) for i in ids) if r is not None]
-        summarise(run, args, records, len(ids))
+        summarise(run, args, records, len(ids), wall_pace)
 
 
 def run_helpers(run, args, opts, shapes, todo):
@@ -620,7 +657,7 @@ def run_helpers(run, args, opts, shapes, todo):
             proc.terminate()
 
 
-def summarise(run, args, records, asked):
+def summarise(run, args, records, asked, wall_pace=None):
     ok = [r for r in records if r["status"] == "ok"]
     failed = [r for r in records if r["status"] != "ok"]
     families = sorted({r["family"] for r in records})
@@ -653,9 +690,18 @@ def summarise(run, args, records, asked):
                      pick(t["broken_off"], "{:.1%}"), pick(t["fragments"], "{:.1f}"),
                      f"{t['distinct_6']:.0f}", f"{t['purity']:.1%}", f"{t['rebuilt']:.0%}"])
     pace = med([r["seconds"] for r in ok])
-    estimate = (f" At the median pace ({pace:.0f} s per shape, {args.workers or 1} at once), 2,000 shapes "
-                f"take about {2000 * pace / max(args.workers, 1) / 3600:.0f} hours on one laptop."
-                if pace else "")
+    at_once = max(args.workers, 1)
+    if wall_pace:  # measured: real time per shape in this run, with the waiting included
+        estimate = (f" This run: {wall_pace:.0f} s of real time per shape with {at_once} at once (each shape "
+                    f"took a median {pace:.0f} s), so 2,000 shapes take about {2000 * wall_pace / 3600:.0f} "
+                    f"hours on this laptop.") if pace else ""
+    else:  # nothing new made: estimate from the shapes' own times
+        estimate = (f" At the median pace ({pace:.0f} s per shape, {at_once} at once), 2,000 shapes "
+                    f"take about {2000 * pace / at_once / 3600:.0f} hours on one laptop.") if pace else ""
+    memory = [r["peak_memory_gb"] for r in ok if r.get("peak_memory_gb")]
+    if memory:
+        estimate += (f" Peak memory per shape: median {np.median(memory):.1f} GB, "
+                     f"highest {max(memory):.1f} GB.")
     errors = sorted({" ".join(str(r.get("error", "?")).split())[:160] for r in failed})
     (args.out_dir / "summary.json").write_text(json.dumps(
         {"dataset_version": DATASET_VERSION, "ids": args.ids, "asked": asked, "made": len(ok),
