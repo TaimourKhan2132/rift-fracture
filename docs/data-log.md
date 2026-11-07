@@ -44,3 +44,32 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 - Homework time against triangle count. Walls and L-corners reach 20,000–45,000 triangles, against 14,000–16,000 in the Day 6 timings. If homework grows a lot with triangles, raise the edge to 0.02: about half the triangles, but the thinnest part becomes 0.06 of the longest side. Measured in the dataset pilot.
 - Which families are held out for testing (the proposal splits by family, for example all arches). To decide before training.
 - Shapes are axis-aligned with y up. The teacher sees one orientation per shape, so rotations belong in training-time augmentation, not in the dataset.
+
+## Dataset generator v1 (7 Nov)
+
+**What it makes:** `scripts/make_dataset.py`. For each shape, one sample file (`data/rift-arch/samples/<id>.npz`, about 45 KB) and one record (`<id>.json`: settings, timings, quality numbers). Each shape runs in its own helper process with a 30-minute limit, and finished shapes are skipped on the next run.
+
+| Step | Setting | From |
+|---|---|---|
+| Teacher | option B, labels only, mass push | D1, D5 (proposed) |
+| Cells | 256 Voronoi cells on voxels 0.0075 apart (6 across the thinnest part), 5 Lloyd rounds | Day 5, with a fixed voxel size (below) |
+| Strength | 100 calibration hits set one threshold per level: 2, 4, 6, 8, 10, 12% median broken-off share | D3 |
+| Hits | 50 random surface points, each labelled at all 6 levels | the push is computed once per hit |
+| Labels | fragment per cell (0 = main body), broken or not per link | groups of cells joined by unbroken links |
+
+**Found while building it:**
+
+- Day 5's `voxelize` took the voxel size from the thinnest side of the bounding box. That works for a wall, but an L-corner's box is thick while its walls are thin: it got 183 voxels in total, under one across a wall. Voxels are now a fixed 0.0075 in the unit box, 6 across the thinnest part any shape may have.
+- In an arch or an L-corner, a Voronoi cell can take voxels across a gap that do not touch the rest of the cell. Such stray pieces now join the neighbouring cell they touch most, so every cell is one connected chunk. Checked on a made-up case; none of the first four test shapes needed it.
+- Cell labels follow the links. Each cell first takes the teacher fragment holding most of its volume; fragments are then the groups of cells still joined by unbroken links. Cell and link labels therefore always agree, which is also how Unity will turn RIFT's link predictions into pieces.
+- The cells are stored as a block of voxels (cell number per voxel, -1 outside): 35 KB instead of 400 KB as a list.
+
+**Cloud test (Linux), IDs 0–3.** MOSEK has no licence in the cloud, so fracture-modes' conic solve was swapped for an equivalent linear program (exact for d=1) in a test-only script. The teacher also ran with a 1,000-face cage and 6 modes to save time. These numbers check the pipeline, not label quality.
+
+- 4 of 4 samples made, 66–130 s per shape. Outside the teacher's homework: cells 0.7–2.5 s, calibration 5.4–6.2 s, labels 1.6–2.5 s, picture about 1 s.
+- Purity 98.4–99.1%, rebuilt 98–100%, lost volume under 0.05%.
+- A link broken at one strength stayed broken at every higher strength in 98.4–100% of cases. The rest is a cell switching to another fragment when more pieces break.
+- With so few pieces (15–42), some strength levels shared a threshold. Option B's few hundred pieces should separate them; the pilot checks this.
+- Also checked: a run restarts where it stopped, two shapes run at once, a shape over its time limit is stopped and recorded, and a solver error inside a helper is recorded with its traceback.
+
+**Pilot on TKR's laptop (IDs 0–19, option B):** to fill in. To check: homework time against triangle count, whether the six strengths give different breaks (broken off at 2 / 6 / 12%), variety (distinct outcomes at 6%), purity, and the pictures.
