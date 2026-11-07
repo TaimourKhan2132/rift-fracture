@@ -45,6 +45,8 @@ KNOWN = {
     "day6c_B": ("Day 6c: second hit (first run)", "Reuse vs redo homework on a damaged wall; Day 4 strength rule, which spoiled the comparison."),
     "day6c_B_target": ("Day 6c: second hit (matched strength)", "Reuse vs redo homework on a damaged wall, each wall set to 5% median damage."),
     "day6d_B": ("Day 6d: same wall, different triangles", "How much the teacher's answer depends on the triangle layout."),
+    "day6c_B_target_mass": ("Day 6c: second hit (matched strength, mass push)", "Reuse vs redo homework on a damaged wall, with the mass-weighted push of Day 6f."),
+    "day6f_B": ("Day 6f: corners push vs mass push", "Does pushing by material instead of by mesh corner make the teacher less dependent on the triangles?"),
     "day6e_B": ("Day 6e: labels without the display mesh", "Same labels without the slow display-mesh step? Plus the repeatability check."),
     "sentis_test": ("Sentis test networks", "The two small networks for the Unity test (dense vs scatter graph layer)."),
 }
