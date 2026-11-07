@@ -320,7 +320,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - **Fix:** `teacher.fix_mode_solver_start()` gives the solver a fixed starting vector, applied inside `build_teacher` without editing fracture-modes' code. Every result before this fix (Days 3–6d) used whatever random start each build got. **Verified 1 Nov:** re-running this check gave bit-for-bit identical builds (modes difference 0.0, 476 and 476 pieces) and identical labels on all 40 hits.
 - **The mesh dependence of Day 6d is not this bug:** two builds with different random starts still gave identical labels on all 40 hits, so the 0.56–0.64 agreement between triangulations comes from the triangles.
 
-## Day 6f: a fairer hit (planned 7 Nov)
+## Day 6f: a fairer hit (7 Nov)
 
 **Question:** fracture-modes pushes every tet corner within 0.05 of the hit by the same amount, so a denser mesh near the hit means a stronger hit (Day 6c re-run). Its own code comments write the push weighted by the mass matrix (`piece_impact = wave_piece_lsqr' M d`), but that line is commented out. Does the mass-weighted push make the teacher less dependent on the mesh, and does it give the second-hit test (RQ3) a fair answer?
 
@@ -329,9 +329,38 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - `scripts/push_check.py`: three versions of the same wall (original, finer triangles, rounded rebuild), each built once. Both push rules hit each version at the same 40 points, each rule with its own threshold for 5% median damage. Compare each version with the original, and measure how much push each rule delivers at the same spot on each version.
 - `scripts/second_hit.py --push mass`: the Day 6c test again with the mass push, compared with the corners-push re-run of 1 Nov.
 
-**Results:** to fill in.
+**Results (7 Nov,** `outputs/day6f_B/` **and** `outputs/day6c_B_target_mass/`**):** option B, teacher built without the display mesh, 5% median damage for every version and rule.
 
-**What this means:** to fill in.
+| Version | Triangles | Homework (s) | Push at the same spot vs original: corners / mass (median) | ARI vs original: corners / mass | Detached IoU vs original: corners / mass |
+|---|---|---|---|---|---|
+| original | 56 | 90 | 1.00 / 1.00 | reference | reference |
+| finer triangles | 14,336 | 101 | 1.00 / 1.02 | 0.58 / 0.68 | 0.47 / 0.56 |
+| rounded rebuild | 16,000 | 110 | 1.08 / 1.03 | 0.60 / 0.65 | 0.49 / 0.53 |
+
+- Paired per hit (mass minus corners, 40 hits, 95% bootstrap interval): finer triangles ARI +0.10 (0.04 to 0.17), detached IoU +0.09 (0.03 to 0.15); rounded rebuild ARI +0.05 (-0.00 to 0.11), detached IoU +0.04 (-0.02 to 0.09). The mass push agrees better on 25 and 23 of the 40 hits.
+- Both rules reach 4.8–5.0% median damage on every version.
+- The push delivered at the same spot still varies between versions under both rules: 10th–90th percentile 0.80–1.42 (corners) and 0.82–1.36 (mass) of the original's.
+
+Second hits with the mass push, next to the corners-push re-run of 1 Nov:
+
+| Second hits on | Hits | ARI reuse vs redo: corners / mass | Broken-off volume reuse / redo: corners; mass | Fragments reuse / redo: corners; mass |
+|---|---|---|---|---|
+| Control: intact wall, rebuilt | 40 | 0.55 / 0.63 | 4.8% / 5.4%; 6.3% / 6.0% | 7.0 / 8.6; 9.2 / 9.8 |
+| Damaged wall, near crater (< 0.15) | 60 | 0.52 / 0.68 | 3.8% / 6.6%; 5.3% / 6.7% | 6.0 / 5.9; 7.9 / 6.4 |
+| Damaged wall, far from crater | 60 | 0.56 / 0.58 | 5.3% / 4.7%; 6.3% / 5.4% | 8.0 / 5.2; 9.4 / 5.2 |
+
+- Thresholds for 5% median damage with the mass push: intact wall 0.0034, rebuilt intact wall 0.0035, damaged walls 0.0046–0.0052 (37–55% higher). The corners push gave the same pattern (162, 174, 235–251).
+- Homework on the 16,000-triangle walls, labels only: 95–107 s (cage 27–30 s, modes 65–76 s).
+
+**What this means:**
+
+- **The mass push removes part of the mesh noise.** The same wall cut into different triangles agrees at ARI 0.65–0.68 instead of 0.58–0.60. The gain is clear on the finer-triangles version and within the noise on the rounded rebuild. It costs nothing extra, and the strength rule (D3) calibrates it as well as the corners push.
+- **It does not remove most of it.** Only a handful of tet corners lie within 0.05 of a hit, so the push still varies about ±30% from mesh to mesh, and the modes themselves change with the tets. In the picture, hit 1 breaks off 0.2% of the rounded rebuild under both rules and 4–8% of the other two versions. Label noise stays the main limit on how closely RIFT can match the teacher. The ceiling to report becomes about 0.65 ARI with the mass push.
+- **Damaged walls really do break more easily.** Their threshold rises 37–55% under both rules, so it is the crater itself, not the extra tet corners around its rim (the Day 6c guess).
+- **Second hits:** reusing the intact wall's homework still agrees with redoing it about as well as the teacher agrees with itself (ARI 0.58–0.68, control 0.63). But under both push rules it misses two things the redo shows. Near the crater the redo breaks off more (6.7% vs 5.3%; corners 6.6% vs 3.8%). Far from it the reuse gives many more fragments (9.4 vs 5.2; corners 8.0 vs 5.2). This is one wall with three craters, so it is a hint, not a result.
+- **Part of the far-hit gap may come from the strength rule, not the modes.** D3 recalibrates the damaged wall, whose threshold rises because hits near the crater break more, and that higher threshold also weakens hits far from the crater. With the mass push, the threshold carries over between two meshes of the same intact wall within 3% (corners: 7%), so damaged shapes could keep their parent shape's threshold instead. To decide when damaged shapes are generated.
+- RQ3 stays: RIFT on damaged shapes is compared with both redo and reuse, on broken-off volume and fragment counts as well as ARI.
+- Proposed decision D5: use the mass push for the dataset (`docs/decisions.md`).
 
 ## Threats found (Day 6)
 
@@ -347,6 +376,7 @@ Our break rule matched fracture-modes' own result on every version (check ARI 1.
 - (Found Day 6c) The Day 4 threshold rule (most different outcomes) gives different strength on near-identical shapes (thresholds 64–210). Strength must mean the same thing on every shape before bulk generation.
 - (Found Day 6c) Homework on a 16,000-triangle wall takes 219–321 s for option B, about 3 times the 56-triangle wall. Day 6d: 166–210 s of that is the display-mesh step, which labels do not need. Dataset time estimates must use realistic meshes and the label-only setting.
 - (Found Day 6c re-run) fracture-modes' hit pushes every tet corner within 0.05 of the contact point equally, so hit strength depends on local tet density (1.3–1.9 times more corners around a rebuilt crater rim). This is one cause of the mesh dependence and confounds any damaged-shape comparison. A mesh-independent hit (push weighted by volume, same total) is the candidate fix.
+  - Update (Day 6f): the mass-weighted push raises agreement between triangulations to ARI 0.65–0.68 (from 0.58–0.60). Damaged walls still need a 37–55% higher threshold under both rules, so that rise comes from the crater, not the corner density.
 - (Found Day 6e, fixed) fracture-modes' mode solve used a random starting vector carried over between shapes in one process, so a shape's teacher could depend on which shapes were built before it (476 vs 475 pieces for identical tets). Fixed with a fixed starting vector in `build_teacher`; generated data must record that it used this fix.
 - (Found Day 6, in RIFT's favour) The paper's authors did not simulate secondary fractures and say per-piece modes would exceed realtime constraints. RQ3 (damaged shapes) is supported by the method's own limitations.
 
