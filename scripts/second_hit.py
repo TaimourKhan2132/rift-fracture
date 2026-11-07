@@ -57,7 +57,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # find teacher.py next to this file
-from teacher import (DEFAULT_FM_DIR, build_teacher, decide, hit_distances, load_shape,
+from teacher import (DEFAULT_FM_DIR, build_teacher, decide, hit_distances, hit_tet_labels,
+                     load_shape,
                      piece_distances, piece_volumes, project_impact, sample_impacts,
                      target_damage_threshold, tet_volumes_and_centroids)
 from sweep_threshold import outcome_stats
@@ -73,7 +74,7 @@ MIN_FRAGMENT = 30  # voxels; a Voronoi cell is about 540, so smaller bits are lo
 # ---------------------------------------------------------------- helpers
 
 
-def calibrate(T, v, f, n_hits, n_thresholds, seed):
+def calibrate(T, v, f, n_hits, n_thresholds, seed, push="corners"):
     """Day 4 rule: the threshold giving the most different outcomes over n_hits."""
     fm = T["fm"]
     tet_vol, tet_cent = tet_volumes_and_centroids(T["nodes"], T["elements"])
@@ -83,8 +84,7 @@ def calibrate(T, v, f, n_hits, n_thresholds, seed):
     points, dirs = sample_impacts(v, f, n_hits, seed)
     dists = []
     for p, dvec in zip(points, dirs):
-        project_impact(fm, p, dvec, T["d"], 1.0)
-        dists.append(piece_distances(fm))
+        dists.append(hit_distances(fm, p, dvec, T["d"], push))
     pooled = np.concatenate(dists)
     pooled = pooled[pooled > 0]
     grid = np.geomspace(pooled.min() * 0.5, pooled.max() * 2.0, n_thresholds)
@@ -103,18 +103,19 @@ def set_strength(T, v, f, args, seed):
     """
     if args.strength == "most-outcomes":
         best, points, dirs, dists, piece_vol = calibrate(T, v, f, args.calibration_hits,
-                                                         args.thresholds, seed)
+                                                         args.thresholds, seed, args.push)
         return float(best["threshold"]), points, dirs, dists, piece_vol
     points, dirs = sample_impacts(v, f, args.calibration_hits, seed)
-    dists = [hit_distances(T["fm"], p, dvec, T["d"]) for p, dvec in zip(points, dirs)]
+    dists = [hit_distances(T["fm"], p, dvec, T["d"], args.push) for p, dvec in zip(points, dirs)]
     piece_vol = piece_volumes(T)
     threshold, _ = target_damage_threshold(T["fm"], dists, piece_vol, args.target_damage)
     return threshold, points, dirs, dists, piece_vol
 
 
-def voxel_fragments(fm, voxel_tet):
-    """Fragment of each voxel after the last impact."""
-    return np.asarray(fm.tet_labels_after_impact).astype(int)[voxel_tet]
+def voxel_fragments(T, point, direction, threshold, voxel_tet, push):
+    """Fragment of each voxel after one hit (our break rule; matches fracture-modes' own
+    labels for the corners push, Days 4 and 6e)."""
+    return hit_tet_labels(T["fm"], point, direction, T["d"], threshold, push)[voxel_tet]
 
 
 def ari(a, b):
@@ -232,6 +233,8 @@ def main():
     p.add_argument("--hits", type=int, default=40, help="second hits per crater")
     p.add_argument("--strength", choices=["target-damage", "most-outcomes"],
                    default="target-damage", help="how each wall's threshold is set")
+    p.add_argument("--push", choices=["corners", "mass"], default="corners",
+                   help="how a hit pushes the tet corners (teacher.hit_distances; mass = Day 6f)")
     p.add_argument("--target-damage", type=float, default=0.05,
                    help="share of the volume the median hit breaks off (target-damage rule)")
     p.add_argument("--calibration-hits", type=int, default=60)
@@ -245,12 +248,13 @@ def main():
     p.add_argument("--fm-dir", type=Path, default=DEFAULT_FM_DIR)
     args = p.parse_args()
     cfg = PRESETS[args.preset]
-    suffix = "_target" if args.strength == "target-damage" else ""
+    suffix = ("_target" if args.strength == "target-damage" else "") + (
+        "_mass" if args.push == "mass" else "")
     out = args.out_dir or Path(f"outputs/day6c_{args.preset}{suffix}")
     out.mkdir(parents=True, exist_ok=True)
     setting = f"option {args.preset}: cage{cfg['cage']}_m{cfg['modes']}_d{cfg['d']}"
     rule = (f"target damage {args.target_damage:.0%}" if args.strength == "target-damage"
-            else "most outcomes")
+            else "most outcomes") + f", {args.push} push"
     title = f"Day 6c: second hit ({setting}; strength rule: {rule})"
     with ui.Run(title, out, steps=2 + 2 * (1 + args.cases) + 1) as run:
         experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree)
@@ -304,8 +308,7 @@ def experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree)
             crater_tree = None
         else:
             label = f"Crater {k} ({crater_share:.1%} of the wall)"
-            project_impact(T1["fm"], cal_pts[i1], cal_dirs[i1], cfg["d"], thr1)
-            frag = voxel_fragments(T1["fm"], vt1)
+            frag = voxel_fragments(T1, cal_pts[i1], cal_dirs[i1], thr1, vt1, args.push)
             keep = frag == np.argmax(np.bincount(frag))
             crater_tree = cKDTree(vox[~keep])
 
@@ -340,12 +343,12 @@ def experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree)
             pts2, dirs2 = pool_pts[pick_hits], pool_dirs[pick_hits]
             examples, case_rows = [], []
             for j, (pt, dv) in run.track(list(enumerate(zip(pts2, dirs2))), "Second hits"):
-                project_impact(T1["fm"], pt, dv, cfg["d"], thr1)
-                reuse = split_disconnected(voxel_fragments(T1["fm"], vt1_keep), index_keep)
-                project_impact(T2["fm"], pt, dv, cfg["d"], thr2)
-                redo = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
-                project_impact(T2["fm"], pt, dv, cfg["d"], thr1)
-                redo_same_thr = split_disconnected(voxel_fragments(T2["fm"], vt2), index_keep)
+                reuse = split_disconnected(voxel_fragments(T1, pt, dv, thr1, vt1_keep, args.push),
+                                           index_keep)
+                redo = split_disconnected(voxel_fragments(T2, pt, dv, thr2, vt2, args.push),
+                                          index_keep)
+                redo_same_thr = split_disconnected(
+                    voxel_fragments(T2, pt, dv, thr1, vt2, args.push), index_keep)
                 dist = float("nan") if crater_tree is None else float(crater_tree.query(pt)[0])
                 case_rows.append({
                     "case": k, "hit": j, "distance_to_crater": dist,
@@ -417,7 +420,7 @@ def experiment(run, args, cfg, out, setting, rule, igl, plt, colormaps, cKDTree)
         groups = {"control": [r for r in rows if r["case"] == "control"],
                   "near": [r for r in rows if r["case"] != "control" and r["near"]],
                   "far": [r for r in rows if r["case"] != "control" and not r["near"]]}
-        summary = {"setting": setting, "strength_rule": args.strength,
+        summary = {"setting": setting, "strength_rule": args.strength, "push": args.push,
                    "target_damage": args.target_damage, "intact_homework_s": t_intact,
                    "threshold_intact": thr1, "cases": cases}
         for name, subset in groups.items():
