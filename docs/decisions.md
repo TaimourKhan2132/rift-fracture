@@ -2,6 +2,22 @@
 
 Decisions that shape the dataset or the model, with the evidence behind them. Newest first.
 
+## D5: A hit pushes by material, not by mesh corner (7 Nov 2026, proposed)
+
+**Proposal:** generate the dataset with `push="mass"`. Each tet corner near the hit is pushed in proportion to the material around it (fracture-modes' mass matrix). This is the formula written in fracture-modes' own code comments (`piece_impact = wave_piece_lsqr' M d`). The line their code actually runs pushes every corner equally.
+
+**Why:** Day 6f (kill-test log).
+- Same wall, different triangles, ARI vs the original: 0.68 vs 0.58 for the finer-triangles version (paired difference +0.10, 95% interval 0.04 to 0.17) and 0.65 vs 0.60 for the rounded rebuild (+0.05, -0.00 to 0.11).
+- Reusing vs redoing homework on damaged walls agrees more as well (ARI 0.58–0.68 vs 0.52–0.56).
+- Same cost. The strength rule (D3) calibrates it equally well (4.8–5.0% median damage on every version).
+- The threshold carries over between two meshes of the same shape within 3% (corners push: 7%), which may let damaged shapes keep their parent's threshold.
+
+**Cost:** our teacher becomes fracture-modes with one documented change. The report and the dataset sheet must say so, and baseline B4 ("fracture modes") is this version. Their code is not edited: `teacher.hit_distances` computes the push.
+
+**Not fixed by this:** most of the mesh noise. Agreement between triangulations stays at about 0.65 ARI, because the modes themselves change with the tets.
+
+**Status:** proposed 7 Nov 2026, to be accepted before the dataset pilot.
+
 ## D4: Graph layers are matrix multiplies, run on Sentis' CPU backend (3 Nov 2026, accepted 7 Nov)
 
 **Proposal:** write RIFT's message-passing layers as matrix multiplies over a dense adjacency matrix (at most 256 × 256), never as scatter operations, and run the network on Sentis' CPU backend in the demo.
