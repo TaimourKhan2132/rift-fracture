@@ -49,6 +49,7 @@ KNOWN = {
     "day6f_B": ("Day 6f: corners push vs mass push", "Does pushing by material instead of by mesh corner make the teacher less dependent on the triangles?"),
     "day6e_B": ("Day 6e: labels without the display mesh", "Same labels without the slow display-mesh step? Plus the repeatability check."),
     "shapes": ("Shapes: the RIFT-Arch generator", "The dataset's base shapes: the first four of every family. Every shape is in outputs/shapes/sheets/, 20 per picture."),
+    "dataset": ("Dataset: RIFT-Arch samples", "The teacher's breaks on 256 cells for every shape. latest.png is the newest sample; every picture is in outputs/dataset/pictures/."),
     "sentis_test": ("Sentis test networks", "The two small networks for the Unity test (dense vs scatter graph layer)."),
 }
 
