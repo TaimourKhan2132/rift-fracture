@@ -36,7 +36,13 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Range (7 Nov):** each hit's strength is a median broken-off share between 2% and 12%. To be checked on pictures in the dataset pilot before bulk generation.
 
-**Status:** accepted by the team on 7 Nov 2026.
+**Amendment (8 Nov, proposed): the average hit, not the median.** Set each threshold so that the average calibration hit breaks off the target share. In the dataset pilot, three of four pillars and one of three arches break in big chunks: a hit leaves the shape whole or snaps off a capital or an arch corner. The median hit sits on that jump, so two levels got the same threshold, some steps changed nothing, and a 10% hit broke off 35%. The average moves a little with each hit, so every level gets its own threshold. Evidence (strength audit, data log; 9 shapes, the same hits both ways):
+- Median rule: 4 dead steps (one level up changes fewer than 3 of 50 hits), 2 repeated thresholds, worst level 24.7 points off target. Mean rule: 0, 0 and 3.2 points.
+- Shapes that already worked hardly change: walls, slab and L-corners stay within 1.1 points of every target (median rule: 0.4–2.9).
+- Trade-off: on chunky shapes most hits break nothing at low strength (the median labelled hit breaks off 0–2.2% at the 6% level), and the average comes from a few hits on weak spots. Strength there means how many places can break; the network learns which from the hit location.
+- Changing it remakes every sample: dataset v2.
+
+**Status:** accepted by the team on 7 Nov 2026; amendment proposed 8 Nov 2026, to be accepted before bulk generation.
 
 ## D2: RIFT claims impact location and strength, not direction (31 Oct 2026, accepted 7 Nov)
 
