@@ -256,29 +256,40 @@ def damage_share(fm, distances, piece_vol, threshold):
     return 1.0 - frag_vol.max() / piece_vol.sum()
 
 
+STRENGTH_STATS = ("median", "mean")
+
+
+def damage_stat(fm, distances_list, piece_vol, threshold, stat="median"):
+    """Median or mean share broken off over a set of hits, at one threshold."""
+    shares = [damage_share(fm, dist, piece_vol, threshold) for dist in distances_list]
+    return float(np.median(shares) if stat == "median" else np.mean(shares))
+
+
 def median_damage(fm, distances_list, piece_vol, threshold):
-    return float(np.median([damage_share(fm, dist, piece_vol, threshold)
-                            for dist in distances_list]))
+    return damage_stat(fm, distances_list, piece_vol, threshold, "median")
 
 
-def target_damage_threshold(fm, distances_list, piece_vol, target):
-    """Threshold at which the median hit breaks off `target` of the volume (Day 6d).
+def target_damage_threshold(fm, distances_list, piece_vol, target, stat="median"):
+    """Threshold at which the median (or mean) hit breaks off `target` of the volume
+    (Day 6d, D3).
 
     A higher threshold keeps more pieces joined, so damage only falls as the threshold
-    rises. Bisection on log(threshold) finds where the median crosses the target.
-    Returns (threshold, median damage at that threshold).
+    rises. Bisection on log(threshold) finds where the statistic crosses the target.
+    Returns (threshold, the statistic at that threshold).
     """
+    if stat not in STRENGTH_STATS:
+        raise ValueError(f"stat must be one of {STRENGTH_STATS}, not {stat!r}")
     pooled = np.concatenate(distances_list)
     pooled = pooled[pooled > 0]
     lo, hi = np.log(pooled.min() * 0.5), np.log(pooled.max() * 2.0)
     for _ in range(40):
         mid = 0.5 * (lo + hi)
-        if median_damage(fm, distances_list, piece_vol, np.exp(mid)) > target:
+        if damage_stat(fm, distances_list, piece_vol, np.exp(mid), stat) > target:
             lo = mid  # too much damage: raise the threshold
         else:
             hi = mid
     threshold = float(np.exp(hi))
-    return threshold, median_damage(fm, distances_list, piece_vol, threshold)
+    return threshold, damage_stat(fm, distances_list, piece_vol, threshold, stat)
 
 
 # ---------------------------------------------------------------- pictures
