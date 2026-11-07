@@ -87,3 +87,33 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 - Rebuilt 76–99%: in up to a quarter of hits (L-corners most), a teacher fragment comes out as two or more groups of cells. Not yet known whether that is debris split in two (harmless) or part of the main body shown as broken off (a label error).
 
 **Before bulk generation:** `scripts/strength_audit.py` reruns shapes 0, 1, 3, 6, 9, 10, 14, 16 and 18 and sets the thresholds two ways on the same hits: the median rule (D3 now) and a mean rule (the average calibration hit breaks off the target share). The mean moves in many small steps, one per hit crossing a jump, so it is much less likely to skip a level. The audit also measures false breaks for the rebuilt question. If the mean rule fixes the chunky shapes without hurting the rest, D3 changes and the dataset becomes v2.
+
+## Strength audit (7 Nov)
+
+**What it does:** `scripts/strength_audit.py` rebuilds the teacher for 9 pilot shapes exactly as `make_dataset.py` does (same seeds, same hits) and sets the six thresholds two ways from the same 100 calibration hits: the median rule (dataset v1) and a mean rule (the average calibration hit breaks off the target share). Shapes: the four that failed in the pilot (pillars #6, #9, #18, arch #14), walls #0 and #16, slab #3, L-corners #1 and #10. 22 minutes on TKR's laptop.
+
+| Teacher share broken off by the 50 labelled hits | Median rule | Mean rule |
+|---|---|---|
+| Repeated thresholds | 2 (#9, #14) | 0 |
+| Dead steps (one level up changes fewer than 3 of 50 hits) | 4 (#9, #14) | 0 |
+| Worst level against its target, all 9 shapes | 24.7 points (#6: the median hit breaks off 34.7% at 10%) | 3.2 points |
+| Worst level against its target, walls, slab and L-corners | 0.4–2.9 points | 0.6–1.1 points |
+
+- Why the median fails: chunky shapes have a cliff. On #6, around a threshold of 0.004 the median calibration hit jumps from about 10% broken off to about 30% (the whole capital). All six median-rule thresholds sit close to that cliff (0.0043–0.0065); the mean-rule thresholds spread over 0.0055–0.0097. Arch #14 has the same cliff at a corner chunk.
+- The trade-off: under the mean rule, on the four chunky shapes the median labelled hit breaks off only 0–2.2% at the 6% level, and at 2% only 5–24 of the 50 hits give distinct outcomes. Most hits break nothing; the average comes from hits on weak spots (the capital joint, an arch corner). Every step still changes 3–27 of the 50 hits. Strength there means how many places can break, and the network has to learn which places from the hit location.
+- Shapes that already worked hardly change: their thresholds move by 0–19%, and both rules give similar outcomes.
+- False breaks: none worth counting. Over all 9 shapes and both rules, cells shown as broken off while the teacher keeps them in the main body average 0.00% of the volume, at most 0.4% in one hit. "Rebuilt" below 100% (76–99%) is debris split into several groups of cells, which is harmless. This closes the rebuilt question.
+- Repeatable: the median-rule thresholds for #0, #1 and #3 equal the pilot's.
+
+**Proposed:** amend D3 to the mean rule (decisions.md). That changes every sample, so the bulk run makes dataset v2.
+
+## Two shapes at once (8 Nov)
+
+**Run:** `make_dataset.py --ids 0-3 --workers 2` on TKR's laptop (Ryzen 5 8645HS, 6 cores and 12 threads, 15.2 GB; OMEN performance mode and plugged in, as in all earlier runs; VS Code closed). HWMonitor logged from about one minute after the start (237 s of the 331 s run).
+
+- 4 shapes in 331 s of real time, against 482 s for the same shapes one at a time in the pilot: 1.46 times as many shapes per hour. Each shape took 1.29–1.36 times its pilot time (cage 1.40–1.49 times, modes 1.34–1.39 times). At 83 s per shape, 2,000 shapes take about 46 hours on this laptop (68 hours one at a time).
+- Same labels as the pilot: identical thresholds and numbers of distinct outcomes at every level, for all four shapes.
+- Not held back by heat or power: package power median 34 W (limit 54 W), package temperature median 83 °C and at most 90 °C; the fastest core averaged 4.5–4.8 GHz and peaked at 5.0 GHz, the chip's maximum. Processor use median 60%. Each shape is slower because the two runs share cores (two threads on one core: logical CPUs 8–11 averaged 65–73% busy) and the cache.
+- Memory: 53–72% in use, at least 4.1 GB free. In-use memory fell by about 1.5 GB when the L-corner finished, so one shape holds roughly that much (to be confirmed by the peak-memory record, which this run did not have yet).
+
+**Plan:** two shapes at once per laptop for the bulk run. A third is untested; with threads already sharing cores it would add little and run hotter for two days.
