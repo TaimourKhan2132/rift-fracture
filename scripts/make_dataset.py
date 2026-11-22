@@ -43,6 +43,7 @@ import argparse
 import hashlib
 import json
 import multiprocessing
+import signal
 import sys
 import time
 import traceback
@@ -76,6 +77,7 @@ SHOW_LEVELS = (0, 2, 5)  # strength levels drawn in the pictures: 2%, 6%, 12%
 DATA_DIR = Path("data/rift-arch")
 OUT_DIR = Path("outputs/dataset")
 SAMPLES = f"samples_v{DATASET_VERSION}"  # one folder per version: old samples never mix in
+MAX_ATTEMPTS = 2      # a shape whose helper crashed (or ran out of memory) is tried this often
 
 
 # ---------------------------------------------------------------- voxels and cells
@@ -327,7 +329,7 @@ def make_sample(shape_id, opts):
     cell_fragment = np.stack([np.stack([r["cell_fragment"] for r in row]) for row in res])
     link_broken = np.stack([np.stack([r["link_broken"] for r in row]) for row in res])
 
-    samples = data_dir / SAMPLES
+    samples = Path(opts["samples_dir"])
     path = samples / f"{shape_id:05d}.npz"
     tmp = samples / f"{shape_id:05d}.tmp.npz"
     np.savez_compressed(
@@ -432,18 +434,52 @@ def load_shape_metres(path):
     return v, f
 
 
+def write_json(path, record):
+    """Write a record so a crash mid-write never leaves a half file: write a copy, then swap."""
+    path = Path(path)
+    tmp = path.with_suffix(".tmp.json")
+    tmp.write_text(json.dumps(record, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
+
+def failed_record(shape_id, opts, error, retry, attempts, traceback_text=None):
+    """Record of a shape that did not finish. retry=True means the cause was not the shape
+    itself (a crashed helper, too little memory), so later runs try it again, up to
+    MAX_ATTEMPTS times in all. retry=False (a Python error, the time limit) is kept until
+    the run is restarted with --retry-failed."""
+    record = {"id": shape_id, "family": opts["shape"]["family"], "status": "failed",
+              **settings(opts), "error": error, "retry": retry, "attempts": attempts}
+    if traceback_text:
+        record["traceback"] = traceback_text[-2000:]
+    return record
+
+
 def child_main(shape_id, opts):
-    """Entry point of the helper process: make one sample, always leave a record behind."""
-    out = Path(opts["data_dir"]) / SAMPLES / f"{shape_id:05d}.json"
+    """Entry point of the helper process: make one sample and leave a record behind.
+
+    An interruption of the whole run (Ctrl+C, closing the window, the machine shutting
+    down) is not the shape's fault, so it leaves no record: the shape is simply made
+    again on the next run. Dataset v1 recorded it as failed, and failed shapes are
+    skipped, so an interrupted shape was silently lost.
+    """
+    if opts.get("ignore_ctrl_c"):
+        # Windows sends Ctrl+C to every process in the window; the main process decides
+        # what it means (finish the running shapes, then stop), so helpers ignore it.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    out = Path(opts["samples_dir"]) / f"{shape_id:05d}.json"
+    attempts = opts.get("attempts", 1)
     try:
         record = make_sample(shape_id, opts)
-    except BaseException as err:  # recorded, never silently dropped
-        record = {"id": shape_id, "family": opts["shape"]["family"], "status": "failed",
-                  **settings(opts), "error": f"{type(err).__name__}: {err}",
-                  "traceback": traceback.format_exc()[-2000:]}
-    tmp = out.with_suffix(".tmp.json")
-    tmp.write_text(json.dumps(record, indent=1))
-    tmp.replace(out)
+        record["attempts"] = attempts
+    except (KeyboardInterrupt, SystemExit):
+        raise  # no record: made again next run
+    except MemoryError as err:
+        record = failed_record(shape_id, opts, f"MemoryError: {err}", True, attempts,
+                               traceback.format_exc())
+    except Exception as err:
+        record = failed_record(shape_id, opts, f"{type(err).__name__}: {err}", False, attempts,
+                               traceback.format_exc())
+    write_json(out, record)
 
 
 # ---------------------------------------------------------------- pictures
@@ -538,21 +574,74 @@ def read_shapes(data_dir):
     return shapes
 
 
-def read_record(data_dir, shape_id):
-    path = data_dir / SAMPLES / f"{shape_id:05d}.json"
+def read_record(samples_dir, shape_id):
+    path = Path(samples_dir) / f"{shape_id:05d}.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # missing, or cut short by a crash: the shape is made again
         return None
 
 
-def is_done(record, data_dir, opts, retry_failed):
-    if record is None:
+def same_settings(record, opts):
+    return all(record.get(k) == v for k, v in settings(opts).items())
+
+
+def file_md5(path):
+    return hashlib.md5(Path(path).read_bytes()).hexdigest()
+
+
+def attempts_of(samples_dir, shape_id):
+    """How many times this shape has been tried, counting the attempt about to start."""
+    record = read_record(samples_dir, shape_id)
+    return (record or {}).get("attempts", 0) + 1 if record and record.get("status") != "ok" else 1
+
+
+def is_done(record, samples_dir, opts, retry_failed):
+    """Whether a shape can be skipped. A finished sample is only trusted if its .npz is
+    still there and unchanged (same checksum as when it was written)."""
+    if record is None or not same_settings(record, opts):
         return False
-    if record.get("status") != "ok":
-        return not retry_failed and all(record.get(k) == v for k, v in settings(opts).items())
-    return (all(record.get(k) == v for k, v in settings(opts).items())
-            and (data_dir / SAMPLES / f"{record['id']:05d}.npz").exists())
+    if record.get("status") == "ok":
+        npz = Path(samples_dir) / f"{record['id']:05d}.npz"
+        return npz.exists() and record.get("npz_md5") in (None, file_md5(npz))
+    if retry_failed:
+        return False
+    if record.get("retry") and record.get("attempts", 1) < MAX_ATTEMPTS:
+        return False  # a crash or too little memory, not the shape itself: try again
+    return True
+
+
+def check_not_mixed(samples_dir, opts):
+    """Stop if the folder holds samples made with other settings (for example a test run
+    with --push corners or a smaller cage). Mixing them would corrupt the dataset."""
+    other = []
+    for path in sorted(Path(samples_dir).glob("[0-9]*.json")):
+        if ".tmp" in path.name:
+            continue
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not same_settings(record, opts):
+            other.append(record.get("id", path.stem))
+    if other:
+        raise SystemExit(
+            f"{samples_dir} already holds {len(other)} samples made with different settings "
+            f"(IDs {other[:10]}{' ...' if len(other) > 10 else ''}). Samples with different "
+            f"settings must never share a folder. For a test run, pass --samples-dir with a "
+            f"new folder; to really remake them, move that folder away first.")
+
+
+def clean_leftovers(samples_dir):
+    """Delete half-written files left by a crash (they are always remade)."""
+    removed = 0
+    for path in Path(samples_dir).glob("*.tmp.*"):
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def main():
@@ -568,16 +657,21 @@ def main():
     p.add_argument("--modes", type=int, default=TEACHER["modes"], help="testing only; D1 says 20")
     p.add_argument("--retry-failed", action="store_true", help="try shapes that failed before again")
     p.add_argument("--no-pictures", action="store_true")
-    p.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    p.add_argument("--data-dir", type=Path, default=DATA_DIR, help="where the shapes are")
+    p.add_argument("--samples-dir", type=Path, default=None,
+                   help=f"where samples go (default: <data-dir>/{SAMPLES}); use a new folder for test runs")
     p.add_argument("--out-dir", type=Path, default=OUT_DIR)
     p.add_argument("--fm-dir", type=Path, default=DEFAULT_FM_DIR)
     args = p.parse_args()
     ids = [i for i in parse_ids(args.ids) if i % args.every == args.offset]
-    (args.data_dir / SAMPLES).mkdir(parents=True, exist_ok=True)
+    args.samples_dir = args.samples_dir or args.data_dir / SAMPLES
+    args.samples_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "pictures").mkdir(parents=True, exist_ok=True)
-    opts = {"data_dir": str(args.data_dir), "out_dir": str(args.out_dir), "fm_dir": str(args.fm_dir),
+    opts = {"data_dir": str(args.data_dir), "samples_dir": str(args.samples_dir),
+            "out_dir": str(args.out_dir), "fm_dir": str(args.fm_dir),
             "push": args.push, "cage": args.cage, "modes": args.modes,
             "pictures": not args.no_pictures}
+    check_not_mixed(args.samples_dir, opts)
     part = f", every {args.every} from {args.offset}" if args.every > 1 else ""
     title = f"Dataset: RIFT-Arch samples v{DATASET_VERSION}, IDs {args.ids}{part}"
     with ui.Run(title, args.out_dir, steps=2) as run:
@@ -588,9 +682,12 @@ def generate(run, args, ids, opts):
     shapes = read_shapes(args.data_dir)
     missing = [i for i in ids if shapes.get(i, {}).get("status") != "ok"]
     ids = [i for i in ids if i not in missing]
+    leftovers = clean_leftovers(args.samples_dir)
     todo = [i for i in ids
-            if not is_done(read_record(args.data_dir, i), args.data_dir, opts, args.retry_failed)]
+            if not is_done(read_record(args.samples_dir, i), args.samples_dir, opts, args.retry_failed)]
     push_note = "mass push (D5)" if opts["push"] == "mass" else "corners push"
+    run.note(f"Samples go to {args.samples_dir}" + (f" ({leftovers} half-written files from an earlier "
+             f"crash removed)" if leftovers else "") + ".")
     run.note(f"{len(ids)} shapes asked for, {len(ids) - len(todo)} already done, {len(todo)} to make; "
              f"{push_note}, cage {opts['cage']}, {opts['modes']} modes, {args.workers or 'no'} helper "
              f"process{'es' * (args.workers != 1)}.")
@@ -605,11 +702,13 @@ def generate(run, args, ids, opts):
     with run.step(f"Make {len(todo)} samples"):
         for shape_id, why in run.track(run_helpers(run, args, opts, shapes, todo), "shapes",
                                        total=len(todo)):
-            record = read_record(args.data_dir, shape_id)
+            record = read_record(args.samples_dir, shape_id)
             if record is None or why:  # the helper died or was stopped before writing a record
-                record = {"id": shape_id, "family": shapes[shape_id]["family"], "status": "failed",
-                          **settings(opts), "error": why or "the helper stopped without a record"}
-                (args.data_dir / SAMPLES / f"{shape_id:05d}.json").write_text(json.dumps(record, indent=1))
+                retry = not (why or "").startswith("stopped after")  # a crash, not the time limit
+                record = failed_record(shape_id, {**opts, "shape": shapes[shape_id]},
+                                       why or "the helper stopped without a record", retry,
+                                       attempts_of(args.samples_dir, shape_id))
+                write_json(args.samples_dir / f"{shape_id:05d}.json", record)
             if record["status"] == "ok":
                 pic = args.out_dir / "pictures" / f"{shape_id:05d}.png"
                 if pic.exists():
@@ -625,7 +724,7 @@ def generate(run, args, ids, opts):
     wall_pace = (time.time() - started) / len(todo) if todo else None
 
     with run.step("Summarise"):
-        records = [r for r in (read_record(args.data_dir, i) for i in ids) if r is not None]
+        records = [r for r in (read_record(args.samples_dir, i) for i in ids) if r is not None]
         summarise(run, args, records, len(ids), wall_pace)
 
 
