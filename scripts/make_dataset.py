@@ -6,8 +6,10 @@ For each shape made by make_shapes.py, in its own helper process:
      6 across the thinnest part any shape may have; cut them into 256 Voronoi cells
      (spread with 5 Lloyd rounds); make sure every cell is one connected piece; link
      cells whose voxels touch (link size = touching area).
-  3. Strength (D3): 100 calibration hits set one break threshold per strength level,
-     the level being the share of the shape the median hit breaks off: 2, 4, ... 12%.
+  3. Strength (D3, amended 8 Nov): 100 calibration hits set one break threshold per
+     strength level, the level being the share of the shape the average (mean) hit
+     breaks off: 2, 4, ... 12%. Dataset v1 used the median hit, which collapsed levels
+     on shapes that break in big chunks (strength audit, docs/data-log.md).
   4. 50 labelled hits at random surface points. Each hit is labelled at all six
      strength levels (the expensive part, the hit's push, is computed once):
        cell_fragment  which fragment each cell ends up in (0 = the main body)
@@ -21,14 +23,19 @@ Files are saved the moment a shape finishes, and shapes already done are skipped
 a crash or a power cut costs one shape. A shape taking longer than --timeout is
 stopped and recorded as failed.
 
+Each dataset version has its own folder (samples_v2/ for v2), so samples made with
+different settings can never mix. How to run, pause, back up and resume a long run:
+docs/run-dataset.md.
+
 Usage (Miniforge Prompt, rift-teacher active, repo root):
     python scripts/make_dataset.py --ids 0-19                      the pilot
+    python scripts/make_dataset.py --ids 0-1999 --workers 2        the full set, one laptop
     python scripts/make_dataset.py --ids 0-1999 --every 2 --offset 0   even IDs (laptop 1)
     python scripts/make_dataset.py --ids 0-1999 --every 2 --offset 1   odd IDs (laptop 2)
 
 Outputs (gitignored):
-    data/rift-arch/samples/<id>.npz    cells, links, hits and labels (listed in make_sample)
-    data/rift-arch/samples/<id>.json   settings, timings, quality numbers
+    data/rift-arch/samples_v2/<id>.npz    cells, links, hits and labels (listed in make_sample)
+    data/rift-arch/samples_v2/<id>.json   settings, timings, quality numbers
     outputs/dataset/                   summary.json, log_table.md, latest.png, pictures/
 """
 
@@ -51,12 +58,13 @@ from teacher import (DEFAULT_FM_DIR, PUSH_RULES, build_teacher, decide, hit_dist
 from cell_graph import locate_in_tets, make_cells, make_links, seeds_inside
 import ui
 
-DATASET_VERSION = 1   # bump whenever a change would alter any sample
+DATASET_VERSION = 2   # bump whenever a change would alter any sample
+# v1 (7 Nov): median strength rule. v2 (22 Nov): mean strength rule (D3 amendment).
 DATA_SEED = 2027
 TEACHER = {"cage": 5000, "modes": 20, "d": 1, "grid_size": 256, "minratio": 1.5}  # D1, option B
 PUSH = "mass"         # D5 (proposed 7 Nov): weight the hit by material, not by mesh corner
 STRENGTHS = (0.02, 0.04, 0.06, 0.08, 0.10, 0.12)  # D3: share broken off
-STRENGTH_STAT = "median"  # D3: the median calibration hit breaks off that share
+STRENGTH_STAT = "mean"  # D3 amendment (8 Nov): the average calibration hit breaks off that share
 HITS = 50
 CALIBRATION_HITS = 100
 CELLS = 256
@@ -67,6 +75,7 @@ SHOW_LEVELS = (0, 2, 5)  # strength levels drawn in the pictures: 2%, 6%, 12%
 
 DATA_DIR = Path("data/rift-arch")
 OUT_DIR = Path("outputs/dataset")
+SAMPLES = f"samples_v{DATASET_VERSION}"  # one folder per version: old samples never mix in
 
 
 # ---------------------------------------------------------------- voxels and cells
@@ -318,7 +327,7 @@ def make_sample(shape_id, opts):
     cell_fragment = np.stack([np.stack([r["cell_fragment"] for r in row]) for row in res])
     link_broken = np.stack([np.stack([r["link_broken"] for r in row]) for row in res])
 
-    samples = data_dir / "samples"
+    samples = data_dir / SAMPLES
     path = samples / f"{shape_id:05d}.npz"
     tmp = samples / f"{shape_id:05d}.tmp.npz"
     np.savez_compressed(
@@ -425,7 +434,7 @@ def load_shape_metres(path):
 
 def child_main(shape_id, opts):
     """Entry point of the helper process: make one sample, always leave a record behind."""
-    out = Path(opts["data_dir"]) / "samples" / f"{shape_id:05d}.json"
+    out = Path(opts["data_dir"]) / SAMPLES / f"{shape_id:05d}.json"
     try:
         record = make_sample(shape_id, opts)
     except BaseException as err:  # recorded, never silently dropped
@@ -530,7 +539,7 @@ def read_shapes(data_dir):
 
 
 def read_record(data_dir, shape_id):
-    path = data_dir / "samples" / f"{shape_id:05d}.json"
+    path = data_dir / SAMPLES / f"{shape_id:05d}.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -543,7 +552,7 @@ def is_done(record, data_dir, opts, retry_failed):
     if record.get("status") != "ok":
         return not retry_failed and all(record.get(k) == v for k, v in settings(opts).items())
     return (all(record.get(k) == v for k, v in settings(opts).items())
-            and (data_dir / "samples" / f"{record['id']:05d}.npz").exists())
+            and (data_dir / SAMPLES / f"{record['id']:05d}.npz").exists())
 
 
 def main():
@@ -564,7 +573,7 @@ def main():
     p.add_argument("--fm-dir", type=Path, default=DEFAULT_FM_DIR)
     args = p.parse_args()
     ids = [i for i in parse_ids(args.ids) if i % args.every == args.offset]
-    (args.data_dir / "samples").mkdir(parents=True, exist_ok=True)
+    (args.data_dir / SAMPLES).mkdir(parents=True, exist_ok=True)
     (args.out_dir / "pictures").mkdir(parents=True, exist_ok=True)
     opts = {"data_dir": str(args.data_dir), "out_dir": str(args.out_dir), "fm_dir": str(args.fm_dir),
             "push": args.push, "cage": args.cage, "modes": args.modes,
@@ -600,7 +609,7 @@ def generate(run, args, ids, opts):
             if record is None or why:  # the helper died or was stopped before writing a record
                 record = {"id": shape_id, "family": shapes[shape_id]["family"], "status": "failed",
                           **settings(opts), "error": why or "the helper stopped without a record"}
-                (args.data_dir / "samples" / f"{shape_id:05d}.json").write_text(json.dumps(record, indent=1))
+                (args.data_dir / SAMPLES / f"{shape_id:05d}.json").write_text(json.dumps(record, indent=1))
             if record["status"] == "ok":
                 pic = args.out_dir / "pictures" / f"{shape_id:05d}.png"
                 if pic.exists():
@@ -710,7 +719,7 @@ def summarise(run, args, records, asked, wall_pace=None):
          "families": table, "errors": errors}, indent=2))
     intro = (f"Dataset v{DATASET_VERSION}, IDs {args.ids}: {len(ok)} samples, {len(failed)} failed "
              f"(medians per shape; fragments and outcomes are per hit, of {HITS} hits). "
-             f"Teacher option B, {args.push} push, strengths 2–12%, {HITS} hits per shape, "
+             f"Teacher option B, {args.push} push, strengths 2–12% ({STRENGTH_STAT} rule), {HITS} hits per shape, "
              f"{CELLS} cells.{estimate}")
     if errors:
         intro += " Failures: " + "; ".join(e.rstrip(".") for e in errors[:5]) + ("." if len(errors) <= 5 else "; ...")
