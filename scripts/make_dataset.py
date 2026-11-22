@@ -43,6 +43,7 @@ import argparse
 import hashlib
 import json
 import multiprocessing
+import os
 import signal
 import sys
 import time
@@ -551,7 +552,7 @@ def draw_sample(path, record, vox, cell, cell_fragment, hit_pts):
     plt.close(fig)
 
 
-# ---------------------------------------------------------------- main (runs the helpers)
+# ---------------------------------------------------------------- finding work
 
 
 def parse_ids(text):
@@ -644,6 +645,73 @@ def clean_leftovers(samples_dir):
     return removed
 
 
+# ---------------------------------------------------------------- pausing, stopping, staying awake
+
+# Exit codes, read by scripts/run_dataset.bat to decide whether to start again.
+EXIT_DONE = 0      # every shape asked for is done (or failed for good)
+EXIT_STOPPED = 10  # stopped on request (STOP file or Ctrl+C): do not restart
+EXIT_FAILING = 11  # too many shapes failed in a row (licence? environment?): do not restart
+FAIL_STREAK = 5    # this many failures in a row stop the run instead of burning through IDs
+
+
+class Control:
+    """Requests to a running generator, sent through files in the samples folder so any
+    window (or scripts/dataset_control.py) can send them and they survive a restart.
+
+      PAUSE   no new shape starts; running shapes finish; the run waits until it is gone
+      STOP    no new shape starts; running shapes finish; then the run ends (EXIT_STOPPED)
+
+    A shape is never cut off by pause or stop, so no work is lost. Ctrl+C acts like STOP;
+    a second Ctrl+C stops at once (the running shapes are then made again next run).
+    """
+
+    def __init__(self, samples_dir):
+        self.pause_file = Path(samples_dir) / "PAUSE"
+        self.stop_file = Path(samples_dir) / "STOP"
+        self.status_file = Path(samples_dir) / "_status.json"
+        self.reason = None    # why no new shapes start; None while running normally
+        self.failing = False  # stopped by a failure streak
+        self.ctrl_c = 0       # Ctrl+C presses so far
+        self.info = {}        # shown by dataset_control.py status
+
+    def stopping(self):
+        if self.reason is None and self.stop_file.exists():
+            self.reason = "stop requested (STOP file)"
+        return self.reason is not None
+
+    def paused(self):
+        return self.pause_file.exists()
+
+    def heartbeat(self, state, running=()):
+        """Write what the run is doing, for dataset_control.py status (never fatal)."""
+        try:
+            write_json(self.status_file, {**self.info, "pid": os.getpid(), "state": state,
+                                          "updated": time.time(), "running": sorted(running),
+                                          "stop_reason": self.reason})
+        except OSError:
+            pass
+
+
+def keep_awake(on):
+    """Ask Windows not to sleep while shapes are being made (the screen may still turn off).
+
+    Idle sleep would freeze the run for hours. This only stops idle sleep: closing the lid
+    or choosing Sleep still sleeps the laptop (see docs/run-dataset.md for the settings).
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        es_continuous, es_system_required = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            es_continuous | (es_system_required if on else 0))
+    except Exception:  # staying awake is a convenience, never a reason to fail
+        pass
+
+
+# ---------------------------------------------------------------- main (runs the helpers)
+
+
 def main():
     p = argparse.ArgumentParser(description="Make RIFT-Arch training samples with the teacher.")
     p.add_argument("--ids", default="0-19", help="shape IDs, e.g. 0-19 or 0-1999 or 3,7,40-59")
@@ -670,15 +738,34 @@ def main():
     opts = {"data_dir": str(args.data_dir), "samples_dir": str(args.samples_dir),
             "out_dir": str(args.out_dir), "fm_dir": str(args.fm_dir),
             "push": args.push, "cage": args.cage, "modes": args.modes,
-            "pictures": not args.no_pictures}
+            "pictures": not args.no_pictures, "ignore_ctrl_c": True}
     check_not_mixed(args.samples_dir, opts)
+    control = Control(args.samples_dir)
+    if control.stop_file.exists():  # starting the run means: run. An old STOP must not end it.
+        control.stop_file.unlink()
     part = f", every {args.every} from {args.offset}" if args.every > 1 else ""
     title = f"Dataset: RIFT-Arch samples v{DATASET_VERSION}, IDs {args.ids}{part}"
-    with ui.Run(title, args.out_dir, steps=2) as run:
-        generate(run, args, ids, opts)
+    keep_awake(True)
+    try:
+        with ui.Run(title, args.out_dir, steps=2) as run:
+            generate(run, args, ids, opts, control)
+    except KeyboardInterrupt:  # the second Ctrl+C: stopped at once
+        control.reason = control.reason or "Ctrl+C"
+        control.heartbeat("stopped")
+        sys.exit(EXIT_STOPPED)
+    finally:
+        keep_awake(False)
+    if control.failing:
+        control.heartbeat("stopped")
+        sys.exit(EXIT_FAILING)
+    if control.reason:
+        control.heartbeat("stopped")
+        sys.exit(EXIT_STOPPED)
+    control.heartbeat("finished")
+    sys.exit(EXIT_DONE)
 
 
-def generate(run, args, ids, opts):
+def generate(run, args, ids, opts, control):
     shapes = read_shapes(args.data_dir)
     missing = [i for i in ids if shapes.get(i, {}).get("status") != "ok"]
     ids = [i for i in ids if i not in missing]
@@ -689,18 +776,26 @@ def generate(run, args, ids, opts):
     run.note(f"Samples go to {args.samples_dir}" + (f" ({leftovers} half-written files from an earlier "
              f"crash removed)" if leftovers else "") + ".")
     run.note(f"{len(ids)} shapes asked for, {len(ids) - len(todo)} already done, {len(todo)} to make; "
-             f"{push_note}, cage {opts['cage']}, {opts['modes']} modes, {args.workers or 'no'} helper "
-             f"process{'es' * (args.workers != 1)}.")
+             f"{push_note}, {STRENGTH_STAT} strength rule, cage {opts['cage']}, {opts['modes']} modes, "
+             f"{args.workers or 'no'} helper process{'es' * (args.workers != 1)}.")
+    run.note("Pause, resume or stop from another window: python scripts/dataset_control.py "
+             "pause | resume | stop | status. Ctrl+C here finishes the running shapes, then stops.")
+    if control.paused():
+        run.say("[yellow]PAUSE file found: no shape starts until you run dataset_control.py resume.[/]",
+                "PAUSE file found: no shape starts until you run dataset_control.py resume.")
     if missing:
         run.note(f"No finished shape for {len(missing)} IDs (make them with make_shapes.py first): "
                  f"{missing[:10]}{' ...' if len(missing) > 10 else ''}")
     if opts["cage"] != TEACHER["cage"] or opts["modes"] != TEACHER["modes"]:
         run.say("[yellow]Teacher setting differs from D1 (option B): testing only.[/]",
                 "Teacher setting differs from D1 (option B): testing only.")
+    control.info = {"ids": args.ids, "every": args.every, "offset": args.offset, "asked": len(ids),
+                    "to_make": len(todo), "made_this_run": 0, "failed_this_run": 0,
+                    "workers": args.workers, "started": time.time()}
 
-    started = time.time()
+    started, made, streak = time.time(), 0, 0
     with run.step(f"Make {len(todo)} samples"):
-        for shape_id, why in run.track(run_helpers(run, args, opts, shapes, todo), "shapes",
+        for shape_id, why in run.track(run_helpers(run, args, opts, shapes, todo, control), "shapes",
                                        total=len(todo)):
             record = read_record(args.samples_dir, shape_id)
             if record is None or why:  # the helper died or was stopped before writing a record
@@ -709,7 +804,10 @@ def generate(run, args, ids, opts):
                                        why or "the helper stopped without a record", retry,
                                        attempts_of(args.samples_dir, shape_id))
                 write_json(args.samples_dir / f"{shape_id:05d}.json", record)
+            made += 1
             if record["status"] == "ok":
+                streak = 0
+                control.info["made_this_run"] += 1
                 pic = args.out_dir / "pictures" / f"{shape_id:05d}.png"
                 if pic.exists():
                     (args.out_dir / "latest.png").write_bytes(pic.read_bytes())
@@ -718,50 +816,117 @@ def generate(run, args, ids, opts):
                          f"{record['pieces']} pieces, 6% strength gives "
                          f"{record['levels'][2]['distinct_outcomes']} different outcomes from {HITS} hits")
             else:
-                run.say(f"[red]#{shape_id:05d} failed[/]: {record.get('error')}",
-                        f"#{shape_id:05d} failed: {record.get('error')}")
+                streak += 1
+                control.info["failed_this_run"] += 1
+                again = " (tried again next run)" if record.get("retry") and record.get(
+                    "attempts", 1) < MAX_ATTEMPTS else ""
+                run.say(f"[red]#{shape_id:05d} failed[/]{again}: {record.get('error')}",
+                        f"#{shape_id:05d} failed{again}: {record.get('error')}")
+                if streak >= FAIL_STREAK and not control.reason:
+                    control.reason = f"{streak} shapes failed in a row (last: {record.get('error')})"
+                    control.failing = True
+                    run.say(f"[red]{control.reason}. Something is wrong with the setup (MOSEK licence? "
+                            f"environment?), so no new shape starts. Fix it, then start the run again.[/]",
+                            f"{control.reason}. Something is wrong with the setup (MOSEK licence? "
+                            f"environment?), so no new shape starts. Fix it, then start the run again.")
     # Real time per shape, including waiting: what decides how long a bulk run takes.
-    wall_pace = (time.time() - started) / len(todo) if todo else None
+    wall_pace = (time.time() - started) / made if made else None
 
     with run.step("Summarise"):
         records = [r for r in (read_record(args.samples_dir, i) for i in ids) if r is not None]
         summarise(run, args, records, len(ids), wall_pace)
+        left = [i for i in ids if not is_done(read_record(args.samples_dir, i), args.samples_dir, opts, False)]
+        failed_for_good = [r["id"] for r in records if r["status"] != "ok" and r["id"] not in left]
+        if control.reason and left:
+            run.say(f"[yellow]Stopped early: {control.reason}. {len(left)} shapes left; start the same "
+                    f"command again to continue where it stopped.[/]",
+                    f"Stopped early: {control.reason}. {len(left)} shapes left; start the same command "
+                    f"again to continue where it stopped.")
+        if failed_for_good:
+            run.note(f"{len(failed_for_good)} shapes failed and are skipped from now on "
+                     f"({failed_for_good[:10]}{' ...' if len(failed_for_good) > 10 else ''}). "
+                     f"Read the error in their .json; to try them again add --retry-failed.")
 
 
-def run_helpers(run, args, opts, shapes, todo):
-    """Run each shape in its own process, up to --workers at once. Yields (id, problem)."""
+def run_helpers(run, args, opts, shapes, todo, control):
+    """Run each shape in its own process, up to --workers at once. Yields (id, problem).
+
+    Between shapes it obeys the controls (see Control): while paused no new shape starts;
+    when stopping it returns as soon as the running shapes finish.
+    """
+    def shape_opts(shape_id):
+        return {**opts, "shape": shapes[shape_id], "attempts": attempts_of(args.samples_dir, shape_id)}
+
     if args.workers <= 0:  # debugging: everything in this process
         for shape_id in todo:
-            child_main(shape_id, {**opts, "shape": shapes[shape_id]})
+            if control.stopping():
+                return
+            child_main(shape_id, {**shape_opts(shape_id), "ignore_ctrl_c": False})
             yield shape_id, None
         return
     ctx = multiprocessing.get_context("spawn")  # what Windows does anyway
     queue, running = list(todo), {}
+    was_paused, last_tick, last_beat = False, time.time(), 0.0
     try:
-        while queue or running:
-            while queue and len(running) < args.workers:
-                shape_id = queue.pop(0)
-                proc = ctx.Process(target=child_main, args=(shape_id, {**opts, "shape": shapes[shape_id]}))
-                proc.start()
-                running[shape_id] = (proc, time.time())
-                run.set_substep("working on " + ", ".join(f"#{i:05d}" for i in running))
-            time.sleep(0.5)
-            for shape_id, (proc, started) in list(running.items()):
-                why = None
-                if proc.exitcode is None:
-                    if time.time() - started < args.timeout:
-                        continue
-                    proc.terminate()
-                    why = f"stopped after {args.timeout:.0f} s"
-                proc.join()
-                if why is None and proc.exitcode != 0:
-                    why = f"helper process crashed (exit code {proc.exitcode})"
-                del running[shape_id]
-                if running:
+        while running or (queue and not control.stopping()):
+            finished = []
+            try:
+                paused = control.paused()
+                if paused != was_paused:
+                    was_paused = paused
+                    if paused:
+                        run.say(f"[yellow]Paused: {len(running)} running shapes finish, no new one starts. "
+                                f"Resume with: python scripts/dataset_control.py resume[/]",
+                                f"Paused: {len(running)} running shapes finish, no new one starts. "
+                                f"Resume with: python scripts/dataset_control.py resume")
+                    else:
+                        run.say("[green]Resumed.[/]", "Resumed.")
+                keep_awake(not paused or bool(running))  # a paused, idle run lets the laptop sleep
+                while queue and len(running) < args.workers and not paused and not control.stopping():
+                    shape_id = queue.pop(0)
+                    proc = ctx.Process(target=child_main, args=(shape_id, shape_opts(shape_id)))
+                    proc.start()
+                    running[shape_id] = (proc, time.time())
                     run.set_substep("working on " + ", ".join(f"#{i:05d}" for i in running))
-                yield shape_id, why
+                time.sleep(0.5)
+                now = time.time()
+                gap, last_tick = now - last_tick, now
+                if gap > 60:  # the laptop was asleep: that time does not count toward --timeout
+                    running = {i: (proc, began + gap) for i, (proc, began) in running.items()}
+                    run.note(f"The laptop was asleep or frozen for {gap / 60:.0f} minutes; the running "
+                             f"shapes' time limit was moved on by as much.")
+                if now - last_beat > 10:
+                    last_beat = now
+                    state = "stopping" if control.stopping() else "paused" if paused else "running"
+                    control.heartbeat(state, running)
+                for shape_id, (proc, began) in list(running.items()):
+                    why = None
+                    if proc.exitcode is None:
+                        if now - began < args.timeout:
+                            continue
+                        proc.terminate()
+                        why = f"stopped after {args.timeout:.0f} s"
+                    proc.join()
+                    if why is None and proc.exitcode != 0:
+                        why = f"helper process crashed (exit code {proc.exitcode})"
+                    del running[shape_id]
+                    finished.append((shape_id, why))
+                if finished:
+                    run.set_substep("working on " + ", ".join(f"#{i:05d}" for i in running)
+                                    if running else "between shapes")
+            except KeyboardInterrupt:
+                control.ctrl_c += 1
+                if control.ctrl_c >= 2:
+                    raise  # the second Ctrl+C: stop at once (finally stops the helpers)
+                control.reason = control.reason or "Ctrl+C"
+                run.say(f"[yellow]Ctrl+C: the {len(running)} running shapes finish, then the run stops. "
+                        f"Press Ctrl+C again to stop at once (they are then made again next run).[/]",
+                        f"Ctrl+C: the {len(running)} running shapes finish, then the run stops. "
+                        f"Press Ctrl+C again to stop at once (they are then made again next run).")
+            for item in finished:
+                yield item
     finally:
-        for proc, _ in running.values():  # Ctrl+C or an error: stop the helpers too
+        for proc, _ in running.values():  # stopped at once or an error: stop the helpers too
             proc.terminate()
 
 
