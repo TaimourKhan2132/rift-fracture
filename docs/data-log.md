@@ -117,3 +117,39 @@ Variety in 2,000 IDs (first draw of each, from the sizes alone):
 - Memory: 53–72% in use, at least 4.1 GB free. In-use memory fell by about 1.5 GB when the L-corner finished, so one shape holds roughly that much (to be confirmed by the peak-memory record, which this run did not have yet).
 
 **Plan:** two shapes at once per laptop for the bulk run. A third is untested; with threads already sharing cores it would add little and run hotter for two days.
+
+## Dataset generator v2 (22 Nov)
+
+**What changed** (`scripts/make_dataset.py`, `DATASET_VERSION = 2`):
+
+- Strength from the mean calibration hit (D3 amendment), the same `calibrate(..., stat="mean")` as the strength audit. Teacher (option B) and hit push (mass, D5) are unchanged from the pilot.
+- Samples go to `data/rift-arch/samples_v2/`. The generator refuses to start if that folder holds samples made with other settings, so v1 samples or test runs can never mix in.
+- Long runs (`docs/run-dataset.md`):
+  - pause, resume, stop and status from another window (`scripts/dataset_control.py`);
+  - Ctrl+C finishes the running shapes, then stops;
+  - Windows is kept from idle-sleeping, and time asleep does not count toward a shape's time limit;
+  - `--backup-dir` copies every finished sample;
+  - `scripts/run_dataset.bat` restarts the generator after a crash and can be put in the Startup folder.
+- Fixed in passing:
+  - In v1, an interrupted run (Ctrl+C, closing the window) recorded its running shapes as failed, and failed shapes are skipped, so they were silently lost. They now leave no record and are made again.
+  - A crashed helper or a MemoryError is retried once more automatically.
+  - A finished `.npz` must still match its saved checksum to be skipped.
+  - Five failures in a row (a licence or environment problem) stop the run instead of marking every remaining shape failed.
+
+**Pipeline test on Waleed's laptop (Ryzen 7 7445HS):**
+- Shapes: IDs 0–3, two at once.
+- Settings: a small test teacher (cage 1,000, 6 modes) in separate test folders. These numbers check the pipeline, not label quality.
+
+| Check | Result |
+|---|---|
+| Pause while two shapes run | Both finished; no new shape started; status showed `paused` with nothing running |
+| Resume, then stop | Shapes 2 and 3 started, finished, then the run ended with exit code 10 |
+| Start again, all done | 4 of 4 skipped, exit code 0 |
+| One `.npz` damaged by hand | Detected by its checksum and remade; the other 3 skipped |
+| Same folder, different cage | Refused to start, listing the 4 IDs |
+| `--backup-dir` | 8 files copied at start; 0 on the next start (already there) |
+| fracture-modes missing (`--fm-dir nowhere`) | Each shape recorded as failed with its error, `retry: false` |
+| Five failures in a row | Run stopped, exit code 11; `run_dataset.bat` ended without restarting |
+| `run_dataset.bat` with output redirected | First crashed on printing a progress mark (Windows code page): exit code 1, 20 restarts. Fixed by forcing UTF-8 output; then exit code 0 and ended |
+
+The v2 samples themselves: 4 of 4 made, purity 98.7–99.5%, peak memory 0.6–0.9 GB with the test teacher. **Not tested yet:** Ctrl+C in a real console window, the Startup shortcut after a reboot, a real sleep, and a crashed helper. **Next:** the v2 pilot on IDs 0–19 with the real teacher (option B) on TKR's laptop.
