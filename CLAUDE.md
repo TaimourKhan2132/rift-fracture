@@ -12,7 +12,7 @@ Training labels come from the teacher, **fracture-modes** (Sellán et al., 2022)
 
 ## Current phase
 
-**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 proposed). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). The 20-shape pilot and the strength audit are done (`docs/data-log.md`): the median strength rule fails on shapes that break in big chunks, and the mean rule fixes it (D3 amendment proposed 8 Nov). Two shapes at once give 1.46 times as many shapes per hour. Dataset v2 (mean rule, mass push) is implemented, with pause, stop, backups and automatic restart (`docs/run-dataset.md`). Now: formally accept the D3 amendment and D5, run the v2 pilot (IDs 0–19), then bulk generation (two shapes at once).
+**Phase 1: data (from 7 Nov 2026).** The week-1 kill test ended with GO (`docs/kill-test-log.md`). Day 6f is done (D5 accepted 22 Nov). The shape generator (`scripts/make_shapes.py`) and the dataset generator (`scripts/make_dataset.py`) are built (v1). The 20-shape pilot and the strength audit are done (`docs/data-log.md`): the median strength rule fails on shapes that break in big chunks, and the mean rule fixes it (D3 amendment, accepted 22 Nov). Two shapes at once give 1.46 times as many shapes per hour. Dataset v2 (mean rule, mass push) is implemented, with pause, stop, backups and automatic restart (`docs/run-dataset.md`). Now: the v2 pilot (IDs 0–19), then bulk generation (two shapes at once).
 
 Do NOT yet build: training code, the Unity integration, or anything for the Breaking Bad dataset. Folders are created when their first real file is needed.
 
@@ -51,7 +51,7 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - **Never copy its code into this repo** (academic, non-commercial licence).
 - The MOSEK licence file lives at `%USERPROFILE%\mosek\mosek.lic`. Never copy it into the repo. It expires after 365 days.
 
-## Teacher settings (decisions D1–D4, accepted 7 Nov; see `docs/decisions.md`)
+## Teacher settings (decisions D1–D4 accepted 7 Nov, D5 and the D3 amendment 22 Nov; see `docs/decisions.md`)
 
 - Option B (D1): cage 5,000 faces, 20 modes, d=1, cage grid 256, tetgen minratio 1.5, `display_mesh=False`. About 111 s per shape on a realistic 14,000-triangle mesh (Day 6e).
 - 256 Voronoi cells per shape. Labels and fragment metrics are defined at cell resolution.
@@ -60,7 +60,7 @@ Plan B (decided): if fracture-modes does not run natively on Windows by the end 
 - Build the teacher with `build_teacher(..., display_mesh=False)` when only labels are needed: identical labels, homework 278 → 111 s on a 14,000-triangle wall (Day 6e).
 - Always build the teacher through `teacher.build_teacher`: it fixes the mode solver's starting vector, without which a shape's teacher depends on the shapes built before it in the same process (Day 6e).
 - Known limits: teacher labels depend on the triangle layout (same shape, different triangles: ARI about 0.6 with the corners push, 0.65–0.68 with the mass push; Day 6d, 6f), and a hit's strength depends on how many tet corners lie within 0.05 of it (Day 6c). Never compare RIFT to a single teacher run without stating this ceiling.
-- Hit push (D5, proposed 7 Nov): `push="mass"` weights the push by material, the formula in fracture-modes' own comments; `push="corners"` is fracture-modes as its code runs. Mass agrees better across triangulations (ARI 0.65–0.68 vs 0.58–0.60, Day 6f). Use mass for the dataset once D5 is accepted, and always record which push was used.
+- Hit push (D5, accepted 22 Nov): `push="mass"` weights the push by material, the formula in fracture-modes' own comments; `push="corners"` is fracture-modes as its code runs. Mass agrees better across triangulations (ARI 0.65–0.68 vs 0.58–0.60, Day 6f). The dataset uses mass; always record which push was used.
 - Samples (dataset v2, `make_dataset.py`; v1 differed only in the median strength rule): 256 cells on voxels 0.0075 apart in the unit box, a fixed size (Day 5's `voxelize` sizes voxels from the bounding box, which gave an L-corner 183 voxels). Every cell is one connected piece. Each hit is labelled at strengths 2, 4, 6, 8, 10 and 12% (D3). A cell's fragment = the group of cells still joined by unbroken links, so cell and link labels always agree. The generator uses the mass push by default (D5). Every dataset version has its own folder (`data/rift-arch/samples_v2/`), and the generator refuses to write into a folder holding samples made with other settings: test runs (another push, cage or mode count) need `--samples-dir`.
 - Always use fracture-modes' default projection. `project_on_modes` shatters the wall far from the hit (Day 6b).
 - The teacher's breaks do not depend on impact direction (Day 6b, paper Sec. 6). Never claim direction-dependent fracture; RIFT uses impact location and strength (D2).
