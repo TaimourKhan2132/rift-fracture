@@ -44,6 +44,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import shutil
 import signal
 import sys
 import time
@@ -645,6 +646,40 @@ def clean_leftovers(samples_dir):
     return removed
 
 
+# ---------------------------------------------------------------- backups
+
+
+def back_up_file(src, dst_dir):
+    """Copy one file into the backup folder, unless an identical-size copy is already there.
+    A copy then a swap, so a crash mid-copy never leaves a half file in the backup."""
+    dst = Path(dst_dir) / src.name
+    if dst.exists() and dst.stat().st_size == src.stat().st_size and dst.stat().st_mtime >= src.stat().st_mtime:
+        return False
+    tmp = dst.with_name(dst.name + ".copying")
+    shutil.copy2(src, tmp)
+    tmp.replace(dst)
+    return True
+
+
+def back_up(samples_dir, backup_dir, shape_ids=None):
+    """Copy finished records and samples to the backup folder (for example a Google Drive
+    or USB folder). shape_ids=None copies everything not yet backed up. Returns
+    (files copied, error or None); a failed backup never stops the run."""
+    copied = 0
+    try:
+        Path(backup_dir).mkdir(parents=True, exist_ok=True)
+        if shape_ids is None:
+            files = [f for f in Path(samples_dir).glob("[0-9]*.*") if ".tmp" not in f.name]
+        else:
+            files = [Path(samples_dir) / f"{i:05d}{ext}" for i in shape_ids for ext in (".npz", ".json")]
+        for f in sorted(files):
+            if f.exists():
+                copied += back_up_file(f, backup_dir)
+        return copied, None
+    except OSError as err:
+        return copied, f"{type(err).__name__}: {err}"
+
+
 # ---------------------------------------------------------------- pausing, stopping, staying awake
 
 # Exit codes, read by scripts/run_dataset.bat to decide whether to start again.
@@ -728,6 +763,8 @@ def main():
     p.add_argument("--data-dir", type=Path, default=DATA_DIR, help="where the shapes are")
     p.add_argument("--samples-dir", type=Path, default=None,
                    help=f"where samples go (default: <data-dir>/{SAMPLES}); use a new folder for test runs")
+    p.add_argument("--backup-dir", type=Path, default=None,
+                   help="also copy every finished sample here (another drive, or a Google Drive folder)")
     p.add_argument("--out-dir", type=Path, default=OUT_DIR)
     p.add_argument("--fm-dir", type=Path, default=DEFAULT_FM_DIR)
     args = p.parse_args()
@@ -789,6 +826,11 @@ def generate(run, args, ids, opts, control):
     if opts["cage"] != TEACHER["cage"] or opts["modes"] != TEACHER["modes"]:
         run.say("[yellow]Teacher setting differs from D1 (option B): testing only.[/]",
                 "Teacher setting differs from D1 (option B): testing only.")
+    if args.backup_dir:
+        copied, err = back_up(args.samples_dir, args.backup_dir)
+        run.note(f"Backups go to {args.backup_dir}: {copied} files from earlier runs copied now."
+                 if err is None else f"Backup folder {args.backup_dir} cannot be written ({err}); "
+                 f"the run goes on without backups until it can.")
     control.info = {"ids": args.ids, "every": args.every, "offset": args.offset, "asked": len(ids),
                     "to_make": len(todo), "made_this_run": 0, "failed_this_run": 0,
                     "workers": args.workers, "started": time.time()}
@@ -805,6 +847,11 @@ def generate(run, args, ids, opts, control):
                                        attempts_of(args.samples_dir, shape_id))
                 write_json(args.samples_dir / f"{shape_id:05d}.json", record)
             made += 1
+            if args.backup_dir:
+                _, err = back_up(args.samples_dir, args.backup_dir, [shape_id])
+                if err:
+                    run.say(f"[yellow]Backup of #{shape_id:05d} failed ({err}); it is copied at the next "
+                            f"start.[/]", f"Backup of #{shape_id:05d} failed ({err}); it is copied at the next start.")
             if record["status"] == "ok":
                 streak = 0
                 control.info["made_this_run"] += 1
