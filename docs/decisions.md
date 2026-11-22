@@ -18,6 +18,8 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Status:** proposed 7 Nov 2026, to be accepted before the dataset pilot.
 
+**Implementation checked (22 Nov):** `teacher.hit_distances(..., push="mass")` computes `wave_piece_lsqr' (I ⊗ M) impact`, the line commented out in fracture-modes' `impact_projection` (`fracture_modes.py` line 275 at commit `bdf5051`), with `M` the tet mass matrix that the same function already uses for `impact_vis` (line 321). It is the default in `make_dataset.py` (`PUSH = "mass"`) and recorded in every sample's settings. The 20-shape pilot, the strength audit and dataset v2 all use it.
+
 ## D4: Graph layers are matrix multiplies, run on Sentis' CPU backend (3 Nov 2026, accepted 7 Nov)
 
 **Proposal:** write RIFT's message-passing layers as matrix multiplies over a dense adjacency matrix (at most 256 × 256), never as scatter operations, and run the network on Sentis' CPU backend in the demo.
@@ -43,6 +45,8 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 - Changing it remakes every sample: dataset v2.
 
 **Status:** accepted by the team on 7 Nov 2026; amendment proposed 8 Nov 2026, to be accepted before bulk generation.
+
+**Implemented (22 Nov):** dataset v2 (`make_dataset.py`, `STRENGTH_STAT = "mean"`, `DATASET_VERSION = 2`), written to its own folder `data/rift-arch/samples_v2/` so no v1 sample can mix in. The thresholds come from the same `calibrate(..., stat="mean")` the strength audit used.
 
 ## D2: RIFT claims impact location and strength, not direction (31 Oct 2026, accepted 7 Nov)
 
