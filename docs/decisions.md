@@ -2,7 +2,7 @@
 
 Decisions that shape the dataset or the model, with the evidence behind them. Newest first.
 
-## D5: A hit pushes by material, not by mesh corner (7 Nov 2026, proposed)
+## D5: A hit pushes by material, not by mesh corner (7 Nov 2026, accepted 22 Nov)
 
 **Proposal:** generate the dataset with `push="mass"`. Each tet corner near the hit is pushed in proportion to the material around it (fracture-modes' mass matrix). This is the formula written in fracture-modes' own code comments (`piece_impact = wave_piece_lsqr' M d`). The line their code actually runs pushes every corner equally.
 
@@ -16,7 +16,7 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Not fixed by this:** most of the mesh noise. Agreement between triangulations stays at about 0.65 ARI, because the modes themselves change with the tets.
 
-**Status:** proposed 7 Nov 2026, to be accepted before the dataset pilot.
+**Status:** accepted by the team on 22 Nov 2026 (proposed 7 Nov).
 
 **Implementation checked (22 Nov):** `teacher.hit_distances(..., push="mass")` computes `wave_piece_lsqr' (I ⊗ M) impact`, the line commented out in fracture-modes' `impact_projection` (`fracture_modes.py` line 275 at commit `bdf5051`), with `M` the tet mass matrix that the same function already uses for `impact_vis` (line 321). It is the default in `make_dataset.py` (`PUSH = "mass"`) and recorded in every sample's settings. The 20-shape pilot, the strength audit and dataset v2 all use it.
 
@@ -30,7 +30,7 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 
 **Status:** accepted by the team on 7 Nov 2026.
 
-## D3: Strength means the same broken-off share on every shape (1 Nov 2026, accepted 7 Nov)
+## D3: Strength means the same broken-off share on every shape (1 Nov 2026, accepted 7 Nov; amended 22 Nov)
 
 **Proposal:** set each shape's break threshold so that the median random hit breaks off a fixed share of the shape's volume (5% so far; a band of shares for weak to strong hits). This replaces Day 4's rule (the threshold giving the most different outcomes).
 
@@ -44,7 +44,7 @@ Decisions that shape the dataset or the model, with the evidence behind them. Ne
 - Trade-off: on chunky shapes most hits break nothing at low strength (the median labelled hit breaks off 0–2.2% at the 6% level), and the average comes from a few hits on weak spots. Strength there means how many places can break; the network learns which from the hit location.
 - Changing it remakes every sample: dataset v2.
 
-**Status:** accepted by the team on 7 Nov 2026; amendment proposed 8 Nov 2026, to be accepted before bulk generation.
+**Status:** accepted by the team on 7 Nov 2026. The amendment (mean rule, proposed 8 Nov) was accepted by the team on 22 Nov 2026.
 
 **Implemented (22 Nov):** dataset v2 (`make_dataset.py`, `STRENGTH_STAT = "mean"`, `DATASET_VERSION = 2`), written to its own folder `data/rift-arch/samples_v2/` so no v1 sample can mix in. The thresholds come from the same `calibrate(..., stat="mean")` the strength audit used.
 
